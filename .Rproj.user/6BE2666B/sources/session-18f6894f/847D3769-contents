@@ -1,0 +1,22 @@
+unique(fulldat2$Native.host)
+
+humanendpoint <- ifelse(grepl("Homo|human|Human", fulldat2$Native.host),
+       "Yes",
+       "No")
+
+humanendpoint2 <- ifelse(grepl("human|Human|child|Child|Girl|girl|Boy|boy |MEN |men ", fulldat2$Citation),
+                        "Yes",
+                        "No")
+
+
+
+fulldat2$humanendpoint <- ifelse(humanendpoint == "No",
+       humanendpoint2,
+       humanendpoint)
+
+fulldat2$humanendpoint <- ifelse(fulldat2$Citation.number %in% c("CN_116", "CN_126", "CN_13", 'CN_140', "CN_173", "CN_212", "CN_222", "CN_24",
+                                                                 "CN_243", "CN_28", "CN_313", "CN_334", "CN_364", "CN_381", "CN_61", "CN_461",
+                                                                 "CN_443", "CN_422", "CN_416", 'CN_399'),
+                                 "Yes",
+                                 fulldat2$humanendpoint)
+

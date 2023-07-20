@@ -1,0 +1,14 @@
+mapdat <- read.csv("./Data/MapLocationContinentInformation.csv")
+
+
+mapdat2 <- mapdat %>%
+  group_by(Citation.number, ContinentUse) %>%
+  slice(1) %>%
+  dplyr::select(Citation.number, ContinentUse) %>%
+  group_by(Citation.number) %>%
+  mutate(count = n()) %>%
+  filter(Citation.number %in% fulldat2$Citation.number) %>%
+  filter(count == 1) %>%
+  dplyr::select(-count)
+
+fulldat2 <- fulldat2 %>% left_join(mapdat2)

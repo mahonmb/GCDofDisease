@@ -1,0 +1,321 @@
+###########
+DADA2 Code#
+###########
+
+library(dada2); packageVersion("dada2")
+library(ShortRead)
+
+# File parsing - For this, we will use only the forward illumina reads - make sure to move fwd reads into their own directory for simplest processing
+path <- "/PATH/TO/FWD/READS" # CHANGE to the directory containing your demultiplexed fastq files
+filtpath <- file.path(path, "filtered") # Filtered files go into the filtered/ subdirectory
+if(!file_test("-d", filtpath)) dir.create(filtpath) # make directory for filtered fqs if not already present
+fns <- list.files(path, full.names = TRUE)
+fastqs <- fns[grepl(".fastq$", fns)] # CHANGE if different file extensions or to target only certain sequences
+
+# visualize a couple of fwd read quality profiles to help you decide reasonable filtration parameters
+plotQualityProfile(fnFs[[1]])
+plotQualityProfile(fnFs[[2]])
+
+# Filter fastqs and store in new directory
+for(i in seq_along(fastqs)) {
+  fastq <- fastqs[[i]]
+  fastqFilter(fn = file.path(path,fastq), fout = file.path(filtpath, fastq),
+              trimLeft=12, minLen=125,
+              maxEE=1, truncQ=2, maxN=0, rm.phix=TRUE,
+              compress=TRUE, verbose=TRUE)
+}
+
+# File parsing
+filts <- fns[grepl("fastq.gz$", fns)] # CHANGE if different file extensions
+sample.names <- sapply(strsplit(basename(filts), "_"), `[`, 1) # Assumes filename = samplename_XXX.fastq.gz
+names(filts) <- sample.names
+
+# Learn error rates
+set.seed(100)
+num.trainers = 200
+filts.learn <- sample(filts, num.trainers) # Pick samples to learn from
+
+# Inspect number of reads in filts.learn - Needs to be at least 1,000,000. Alternatively, use ALL your reads if you don't have too many
+total.training.reads = c()
+for(i in c(1:num.trainers)){
+  total.training.reads[i] <- length(readLines(gzfile(filts.learn[i])))/4
+}
+
+# Check total number of reads - Should be minimum of 1,000,000 to adequately train dada2 error rates. 
+# If fewer, increase num.trainers to select more samples
+sum(total.training.reads[])
+
+drp.learn <- derepFastq(filts.learn, verbose = TRUE)
+dd.learn <- dada(drp.learn, err=NULL, selfConsist=TRUE, multithread=TRUE)
+err <- dd.learn[[1]]$err_out
+rm(drp.learn);rm(dd.learn)
+
+# Sample inference
+derep <- derepFastq(filts)
+dds <- dada(derep, err=err, multithread=TRUE)
+
+# Construct sequence table and remove chimeras
+seqtab <- makeSequenceTable(dds)
+seqtab.nochimera <- removeBimeraDenovo(seqtab, multithread=TRUE) # This is the RSV table used for community analyses
+
+# Distribution of sequence lengths
+table(nchar(getSequences(seqtab)))
+
+# fraction of chimeric sequences detected
+1-(sum(seqtab.nochimera)/sum(seqtab))
+
+# Make fasta containing all unique ribosomal sequence variants (RSVs) - useful for BLAST taxonomy assignment
+seqIDs = paste("seq",(1:length(colnames(seqtab.nochimera))), sep = "_")
+uniquesToFasta(seqtab.nochimera, "/PATH/TO/OUTPUT/FILENAME.fasta", ids = seqIDs)
+
+
+#################################
+Code for the entitre Archipelago#
+#################################
+
+setwd("~/Desktop/SI_Only_Fungal_Seqs_Stringent")
+library(readr)
+library(indicspecies)
+library(vegan)
+library(fossil)
+library(ggplot2)
+require(adegenet)
+require(pegas)
+require(ape)
+require(hierfstat)
+require(mmod)
+
+
+##Use import dataset function to import
+SI_stringent_table_RSV_Numeric.csv
+SI_Fungal_Metadata.tsv ##Delimiter = Tab
+
+###Check everything is in order
+identical(rownames(SI_Fungal_Metadata), rownames(SI_Stringent_table_RSV_Numeric))
+
+###Rarefy to?
+barchart(rowSums(SI_Stringent_table_RSV_Numeric))
+length(which(rowSums(SI_Stringent_table_RSV_Numeric)<200))
+Sd1k=which(rowSums(SI_Stringent_table_RSV_Numeric)>200)
+SIDADA_table1k=SI_Stringent_table_RSV_Numeric[Sd1k,]
+min_depth2 = min(rowSums(SIDADA_table1k))
+rarecurve(SIDADA_table1k, sample = 200, step = 200, xlim=c(0, 750))
+set.seed(1)
+rare_SIDADA_table1k = rrarefy(as.matrix(SIDADA_table1k), min_depth2)
+rowSums(rare_SIDADA_table1k)
+specnumber(SIDADA_table1k)
+specnumber(rare_SIDADA_table1k)
+plot(specnumber(SIDADA_table1k),specnumber(rare_SIDADA_table1k))
+SI_Fungal_Metadata_rare=SI_Fungal_Metadata[Sd1k,]
+adonis2(rare_SIDADA_table1k~SI_Fungal_Metadata_rare$Location, Strata=SI_Fungal_Metadata_rare$Group)
+otu_trans=decostand(SIDADA_table1k,"hellinger")
+
+#######Plot NMDS
+Fun_NMDS = metaMDS(otu_trans,k=2)
+stressplot(Fun_NMDS)
+NMDSpoints=as.data.frame(scores(Fun_NMDS))
+nmdsplots=cbind(NMDSpoints, SI_Fungal_Metadata_rare)
+nmdsplots=nmdsplots[order(nmdsplots$Lat),]
+##ggplot(nmdsplots, aes(x=NMDS1, y=NMDS2, shape=Group, cex=3)) +
+##ggplot(nmdsplots, aes(x=NMDS1, y=NMDS2, col=Location, shape=Group, cex=3)) +
+ggplot(nmdsplots, aes(x=NMDS1, y=NMDS2, col=Group)) +
+geom_point(size = 5) +
+#stat_ellipse()+
+theme_bw() +
+labs(title = "", x= "MDS1", y= "MDS2") +
+guides(col=guide_legend(title="Source")) +
+theme(legend.text = element_text(face = 'bold'), legend.title = element_text(face = 'bold'),
+legend.background = element_rect(colour = "black"), title = element_text(size = 14, hjust = 0.5)) +
+#scale_color_manual(values = c("black", "gold"))
+scale_color_manual(values = c("orange","black","red", "pink", "blue", "turquoise", "green", "brown", "gold", "violet", "purple", "grey", "deepskyblue4", "tan" ))
+#scale_color_grey()
+
+####Read in Genotype data
+SIGenotypes <- read.genepop("~/desktop/SI_Only_Fungal_Seqs_Stringent/SI_genotypes_Stringent.gen", ncode=3)
+####Convert to Genid format
+SI_GenepopRare=genind2genpop(SIGenotypes)
+#Convert to dataframe for APE
+SIG_geno_df=genind2df(SIGenotypes, pop = NULL, sep = "", usepop = FALSE, oneColPerAll = TRUE)
+#Calculate pairwise Genetic distance in ape (Pairwise Distances from Genetic Data) APE page 110
+apedist=dist.gene(SIG_geno_df)
+
+##Make table of lat and long
+geo=cbind(SI_Fungal_Metadata_rare$Lon, SI_Fungal_Metadata_rare$Lat)
+#create a distance matrix
+geodist=earth.dist(geo, dist = FALSE)
+#create a distance matrix, default is Bray Curtis
+otu.dist=vegdist(otu_trans)
+hist(specnumber(otu_trans))
+
+
+#Mantel we have 3 distance matrices: otu.dist (Bray Curtis), geodist, apedist (below is staright line distance between two points)
+#it is not otu, it is actually RSV
+mantel(otu.dist, geodist)
+mantel(otu.dist, apedist)
+mantel.partial(otu.dist, apedist, geodist)
+mantel.partial(otu.dist, geodist, apedist)
+
+###Change name of rare_SIDADA_table1k to rare_SIDADA_table1k_DF for indicspecies
+rare_SIDADA_table1k_DF=rare_SIDADA_table1k #make new file
+####Change above to DF
+rare_SIDADA_table1k_DF <- as.data.frame(rare_SIDADA_table1k_DF)
+
+###IndicSpecies
+##Load in SI_Stringent_table_RSV_Indic & SI_Fungal_Metadata_rare_Indic
+
+groups = c(rep(1, 44), rep(2, 33))
+groups
+indval = multipatt (SI_Stringent_table_RSV_Indic_Numeric, groups, control = how(nperm=999))
+summary(indval)
+
+#FunctionEWunique - Randomisations r2dtable - Quantitative (commsim {vegan})
+EWunique=function(x) {#x=community
+    x=x[,which(colSums(x)>0)]
+    East=x[SI_Fungal_Metadata_rare$Group=="East",]
+    West=x[SI_Fungal_Metadata_rare$Group=="West",]
+    sumuniques=length(which(colSums(East)==0))+length(which(colSums(West)==0))
+    return(sumuniques)
+}
+sim=oecosimu (rare_SIDADA_table1k, EWunique, "r2dtable", 1000)
+sim
+?oecosimu
+
+#FunctionEWunique - Randomisations curveball - Binary  (commsim {vegan})
+EWunique=function(x) {#x=community
+    x=x[,which(colSums(x)>0)]
+    East=x[SI_Fungal_Metadata_rare$Group=="East",]
+    West=x[SI_Fungal_Metadata_rare$Group=="West",]
+    sumuniques=length(which(colSums(East)==0))+length(which(colSums(West)==0))
+    return(sumuniques)
+}
+sim=oecosimu (rare_SIDADA_table1k, EWunique, "curveball", 1000)
+sim
+
+####Adonis
+adonis(formula = rare_SIDADA_table1k_DF ~ Lat * Lon, data = SI_Fungal_Metadata_rare, permutations = 999, method = "bray")
+adonis(formula = rare_SIDADA_table1k_DF ~ Group, data = SI_Fungal_Metadata_rare, permutations = 999, method = "bray")
+adonis(formula = rare_SIDADA_table1k_DF ~ Location, data = SI_Fungal_Metadata_rare, permutations = 999, method = "bray")
+adonis(formula = rare_SIDADA_table1k_DF ~ Group + Year, data = SI_Fungal_Metadata_rare, permutations = 999, method = "bray")
+adonis(formula = rare_SIDADA_table1k_DF ~ Group * Year, data = SI_Fungal_Metadata_rare, permutations = 999, method = "bray")
+
+
+###########################
+Code for eastern sites only#
+###########################
+
+
+###IBD on Eastern Side Only
+Import "SI_Fungal_Metadata_rare_east.csv"
+Import "SI_Stringent_table_RSV_rare_east.csv"
+
+###Check everything is in order
+identical(rownames(SI_Fungal_Metadata_rare_east), rownames(SI_Stringent_table_RSV_rare_east_numeric))
+
+###Rarefy to?
+barchart(rowSums(SI_Stringent_table_RSV_rare_east_numeric))
+length(which(rowSums(SI_Stringent_table_RSV_rare_east_numeric)<200))
+Sd1k=which(rowSums(SI_Stringent_table_RSV_rare_east_numeric)>200)
+SIDADA_table1k=SI_Stringent_table_RSV_rare_east_numeric[Sd1k,]
+min_depth2 = min(rowSums(SIDADA_table1k))
+rarecurve(SIDADA_table1k, sample = 200, step = 200, xlim=c(0, 750))
+set.seed(1)
+rare_SIDADA_table1k = rrarefy(as.matrix(SIDADA_table1k), min_depth2)
+rowSums(rare_SIDADA_table1k)
+specnumber(SIDADA_table1k)
+specnumber(rare_SIDADA_table1k)
+plot(specnumber(SIDADA_table1k),specnumber(rare_SIDADA_table1k))
+SI_Fungal_Metadata_rare_west=SI_Fungal_Metadata_rare_east[Sd1k,]
+adonis2(rare_SIDADA_table1k~SI_Fungal_Metadata_rare_east$Location, Strata=SI_Stringent_table_RSV_rare_east_numeric$Group)
+otu_trans=decostand(SIDADA_table1k,"hellinger")
+
+#######Plot NMDS
+Fun_NMDS = metaMDS(otu_trans,k=2)
+stressplot(Fun_NMDS)
+NMDSpoints=as.data.frame(scores(Fun_NMDS))
+nmdsplots=cbind(NMDSpoints, SI_Fungal_Metadata_rare_east)
+nmdsplots=nmdsplots[order(nmdsplots$Lat),]
+ggplot(nmdsplots, aes(x=NMDS1, y=NMDS2, col=Location, shape=Group, cex=3)) +
+#ggplot(nmdsplots, aes(x=NMDS1, y=NMDS2, col=Group)) +
+geom_point(size = 5) +
+#stat_ellipse()+
+theme_bw() +
+labs(title = "", x= "MDS1", y= "MDS2") +
+guides(col=guide_legend(title="Source")) +
+theme(legend.text = element_text(face = 'bold'), legend.title = element_text(face = 'bold'),
+legend.background = element_rect(colour = "black"), title = element_text(size = 14, hjust = 0.5)) +
+#scale_color_manual(values = c("black", "gold"))
+scale_color_manual(values = c("orange","black","red", "pink", "blue", "turquoise", "green", "brown", "gold", "violet", "purple", "grey", "deepskyblue4", "tan" ))
+#scale_color_grey()
+
+##Make table of lat and long
+geo=cbind(SI_Fungal_Metadata_rare_east$Lon, SI_Fungal_Metadata_rare_east$Lat)
+#create a distance matrix
+geodist=earth.dist(geo, dist = FALSE)
+
+#create a distance matrix, default is Bray Curtis
+otu.dist=vegdist(otu_trans)
+hist(specnumber(otu_trans))
+#IBD
+mantel(otu.dist, geodist)
+
+############################
+Code for western sites only#
+############################
+
+###IBD on Western Side Only
+Import "SI_Fungal_Metadata_rare_west.csv"
+Import "SI_Stringent_table_RSV_rare_west.csv"
+
+###Check everything is in order
+identical(rownames(SI_Fungal_Metadata_rare_west), rownames(SI_Stringent_table_RSV_rare_west_numeric))
+
+###Rarefy to?
+barchart(rowSums(SI_Stringent_table_RSV_rare_west_numeric))
+length(which(rowSums(SI_Stringent_table_RSV_rare_west_numeric)<200))
+Sd1k=which(rowSums(SI_Stringent_table_RSV_rare_west_numeric)>200)
+SIDADA_table1k=SI_Stringent_table_RSV_rare_west_numeric[Sd1k,]
+min_depth2 = min(rowSums(SIDADA_table1k))
+rarecurve(SIDADA_table1k, sample = 200, step = 200, xlim=c(0, 750))
+set.seed(1)
+rare_SIDADA_table1k = rrarefy(as.matrix(SIDADA_table1k), min_depth2)
+rowSums(rare_SIDADA_table1k)
+specnumber(SIDADA_table1k)
+specnumber(rare_SIDADA_table1k)
+plot(specnumber(SIDADA_table1k),specnumber(rare_SIDADA_table1k))
+SI_Fungal_Metadata_rare_west=SI_Fungal_Metadata_rare_west[Sd1k,]
+adonis2(rare_SIDADA_table1k~SI_Fungal_Metadata_rare_west$Location, Strata=SI_Fungal_Metadata_rare_west$Group)
+otu_trans=decostand(SIDADA_table1k,"hellinger")
+
+#######Plot NMDS
+Fun_NMDS = metaMDS(otu_trans,k=2)
+stressplot(Fun_NMDS)
+NMDSpoints=as.data.frame(scores(Fun_NMDS))
+nmdsplots=cbind(NMDSpoints, SI_Fungal_Metadata_rare_west)
+nmdsplots=nmdsplots[order(nmdsplots$Lat),]
+ggplot(nmdsplots, aes(x=NMDS1, y=NMDS2, col=Location, shape=Group, cex=3)) +
+#ggplot(nmdsplots, aes(x=NMDS1, y=NMDS2, col=Group)) +
+geom_point(size = 5) +
+#stat_ellipse()+
+theme_bw() +
+labs(title = "", x= "MDS1", y= "MDS2") +
+guides(col=guide_legend(title="Source")) +
+theme(legend.text = element_text(face = 'bold'), legend.title = element_text(face = 'bold'),
+legend.background = element_rect(colour = "black"), title = element_text(size = 14, hjust = 0.5)) +
+#scale_color_manual(values = c("black", "gold"))
+scale_color_manual(values = c("orange","black","red", "pink", "blue", "turquoise", "green", "brown", "gold", "violet", "purple", "grey", "deepskyblue4", "tan" ))
+#scale_color_grey()
+
+##Make table of lat and long
+geo=cbind(SI_Fungal_Metadata_rare_west$Lon, SI_Fungal_Metadata_rare_west$Lat)
+#create a distance matrix
+geodist=earth.dist(geo, dist = FALSE)
+
+#create a distance matrix, default is Bray Curtis
+otu.dist=vegdist(otu_trans)
+hist(specnumber(otu_trans))
+#IBD
+mantel(otu.dist, geodist)
+
+
+
+

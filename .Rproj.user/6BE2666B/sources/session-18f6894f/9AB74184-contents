@@ -1,0 +1,444 @@
+library(tidyverse)
+library(esc)
+library(effectsize)
+library(metafor)
+library(car)
+
+# Everyone's names for ease of reading in individual datasets
+Labbies <- c("Alejandro", "Alex", "Alexis", "Carly", "Emily",
+             "Ethan", "Heather", "Joanna", "Lexi", "Luz",
+             "Meghan", "Mike", "Nitin", "Patrick", "Samantha")
+
+# Read in all datasets
+alldat <- list()
+for(i in 1:15){
+  path <- paste0("G:/Shared drives/GCD of Disease/Final_dat/",Labbies[i],"_Data.csv")
+  alldat[[i]] <- read.csv(path)
+}
+
+# Bind datasets together
+fulldat <- bind_rows(alldat)
+
+# One of the datasets had "Checker.Notes" instead of "Checker_Notes"
+# Not sure which one, so replace those missing observations in "Checker_Notes"
+# with those in "Checker.Notes"
+fulldat$Checker_Notes[which(!(is.na(fulldat$Checker.Notes)))] <- 
+  fulldat$Checker.Notes[which(!(is.na(fulldat$Checker.Notes)))]
+
+colnames(fulldat)
+# Remove extra columns that people added
+fulldat <- fulldat %>%
+  dplyr::select(-FigTable, -Notes_General, -GeneralNotes,
+                       -Checker.Notes, -Notes, -General.Notes)
+
+
+path <- paste0("G:/Shared drives/GCD of Disease/Final_dat/",Labbies[i],"_Data.csv")
+
+write.csv(fulldat,"G:/Shared drives/GCD of Disease/Final_dat/Full_Data.csv",
+          row.names = F)
+
+
+####
+
+
+
+####
+
+# fulldat <- read.csv("G:/Shared drives/GCD of Disease/Final_dat/Full_Data.csv")
+fulldat <- read.csv("C:/Users/mikem/Documents/Research/GCD Analyses/Full_Data.csv")
+
+
+nrow(fulldat)
+
+fulldat %>%
+  mutate(Checker_Notes = tolower(Checker_Notes)) %>%
+  filter(!grepl("drop", Checker_Notes))
+  
+# 1744 - 1228 + 19
+# drop 535 observations, ~30.7% of data (non-BC); 24.4% of BC included data
+
+# Data for which we have control and treatment values
+# Error type must be provided (there are a small handful of studies that
+# need to be reviewed)
+non_coefdat <- fulldat %>%
+  filter(Coef_Type == "") %>%
+  mutate(Checker_Notes = tolower(Checker_Notes)) %>%
+  filter(!grepl("drop", Checker_Notes)) %>%
+  filter(Error_Type != "") %>%
+  filter(!is.na(SampleSizeControl)) %>%
+  filter(!is.na(SampleSizeTreatment))
+
+# Those studies that need to be reviewed - EMPTY (Good!)
+dat_needs_review_noerror <- fulldat %>%
+  filter(Coef_Type == "") %>%
+  mutate(Checker_Notes = tolower(Checker_Notes)) %>%
+  filter(!grepl("drop", Checker_Notes)) %>%
+  filter(Error_Type == "")
+
+non_coefdat <- non_coefdat %>%
+  mutate(SDControl = ifelse(Error_Type == "95CI",
+                                  (VarianceControl*2 / 3.92) * sqrt(SampleSizeControl),
+                                  ifelse(Error_Type == "SE",
+                                         VarianceControl * sqrt(SampleSizeControl),
+                                         ifelse(Error_Type == "VAR",
+                                                sqrt(VarianceControl),
+                                                ifelse(Error_Type == "SD",
+                                                       VarianceControl,
+                                                       NA
+                                                )))),
+         SDTreatment = ifelse(Error_Type == "95CI",
+                                  (VarianceTreatment*2 / 3.92) * sqrt(SampleSizeTreatment),
+                                  ifelse(Error_Type == "SE",
+                                         VarianceTreatment * sqrt(SampleSizeTreatment),
+                                         ifelse(Error_Type == "VAR",
+                                                sqrt(VarianceTreatment),
+                                                ifelse(Error_Type == "SD",
+                                                       VarianceTreatment,
+                                                       NA
+                                                )))),
+         SDControl = ifelse(is.na(SDControl),
+                            0,
+                            SDControl),
+         SDTreatment = ifelse(is.na(SDTreatment),
+                            0,
+                            SDTreatment))
+
+
+non_coefdat <- escalc(measure = "SMD",
+       m1i = MeanTreatment, sd1i = SDTreatment, n1i = SampleSizeTreatment,
+       m2i = MeanControl, sd2i = SDControl, n2i = SampleSizeControl,
+       data = non_coefdat) %>%
+  mutate(Sample_size = SampleSizeTreatment + SampleSizeControl)
+
+sqrt(168)
+
+escalc(measure = "SMD",
+       m2i = 718.9, sd2i = 89.65*sqrt(168), n1i = 168,
+       m1i = 444.6, sd1i = 117.45*sqrt(168), n2i = 168)
+
+
+escalc(measure = "SMD",
+       m2i = 18.84, sd2i = 3.42*sqrt(6), n1i = 6,
+       m1i = 21.16, sd1i = 6.845*sqrt(6), n2i = 6)
+
+
+
+
+non_coefdat_wBC <- bind_rows(non_coefdat, BC_dat_conv)
+
+non_coefdat_wBC <- non_coefdat_wBC %>%
+  mutate(ind_id = 1:nrow(non_coefdat_wBC))
+
+
+#########
+
+# coef conversion
+unique(fulldat$Coef_Type)
+
+# f_stat stats - DONE
+fstats <- fulldat %>%
+  filter(Coef_Type == "f_stat") %>%
+  mutate(Checker_Notes = tolower(Checker_Notes)) %>%
+  filter(!grepl("drop", Checker_Notes)) %>%
+  # 5 observations have their error as chisq, move these to Coefficient
+  mutate(Coefficient  = ifelse(is.na(CoefficientVariance),
+                               Coefficient,
+                               CoefficientVariance),
+         CoefficientVariance = NA)
+
+dat_f <- esc_f(f = fstats$Coefficient,
+               totaln = fstats$SampleSizeTreatment,
+               es.type = "g")
+
+fstats$yi = dat_f$es
+fstats$vi = dat_f$var
+
+
+# t_stat stats - DONE
+tstats <- fulldat %>%
+  filter(Coef_Type == "t_stat") %>%
+  mutate(Checker_Notes = tolower(Checker_Notes)) %>%
+  filter(!grepl("drop", Checker_Notes))
+
+dat_t <- esc_t(t = tstats$Coefficient,
+               totaln = tstats$SampleSizeTreatment,
+               es.type = "g")
+
+tstats$yi = dat_t$es
+tstats$vi = dat_t$var
+
+# correlation stats - DONE
+corrs <- fulldat %>%
+  filter(Coef_Type == "correlation") %>%
+  mutate(Checker_Notes = tolower(Checker_Notes)) %>%
+  filter(!grepl("drop", Checker_Notes)) %>%
+  #2 observations don't have variance (estimate variance by using code below)
+  mutate(CoefficientVariance  = ifelse(is.na(CoefficientVariance),
+                                       ((1 - Coefficient^2)^2) / (SampleSizeTreatment - 1),
+                                       ifelse(Error_Type == "SD",
+                                              CoefficientVariance^2,
+                                              (CoefficientVariance * sqrt(SampleSizeTreatment))^2)),
+         yi = ((2 * Coefficient) / sqrt(1 - Coefficient^2)) * (1 - (3 / ((4 * SampleSizeTreatment + 2)- 1))),
+         vi = ((4 * CoefficientVariance) / ((1 - Coefficient^2)^3)) * ((1 - (3 / ((4 * SampleSizeTreatment + 2)- 1)))^2))
+
+
+# OR stats - DONE
+ORs <- fulldat %>%
+  filter(Coef_Type == "OR") %>%
+  mutate(Checker_Notes = tolower(Checker_Notes)) %>%
+  filter(!grepl("drop", Checker_Notes)) %>%
+# convert all 95CI to SE (2*95CI / 3.92)
+  mutate(CoefficientVariance = ifelse(Error_Type == "95CI",
+                                      ((2*CoefficientVariance)/3.92),
+                                      CoefficientVariance))
+
+dat <- convert_or2d(or = ORs$Coefficient,
+             se = ORs$CoefficientVariance,
+             totaln = ORs$SampleSizeTreatment,
+             es.type = "g")
+ORs$yi = dat$es
+ORs$vi = dat$var
+
+
+convert_or2d(or = .7857,
+             se = .190363,
+             totaln = 40,
+             es.type = "g")
+
+
+# z_stat stats - DONE
+z_stats <- fulldat %>%
+  filter(Coef_Type == "z_stat") %>%
+  mutate(Checker_Notes = tolower(Checker_Notes)) %>%
+  filter(!grepl("drop", Checker_Notes)) %>%
+  mutate(Coefficient  = ifelse(is.na(CoefficientVariance),
+                               Coefficient,
+                               CoefficientVariance),
+         CoefficientVariance = NA)
+
+
+zd <- z_to_d(z = z_stats$Coefficient,
+       n = z_stats$SampleSizeTreatment)
+
+zd$var <- (((zd$CI_high - zd$CI_low) / 3.92) * sqrt(z_stats$SampleSizeTreatment))^2
+zd$J = 1 - (3 / ((4 * z_stats$SampleSizeTreatment + 2)- 1))
+zd$g = zd$J * zd$d
+zd$var_g = (zd$J^2) * zd$var
+z_stats$yi = zd$g
+z_stats$vi = zd$var_g
+
+# chisq stats - DONE
+chisqs <- fulldat %>%
+  filter(Coef_Type == "chisq") %>%
+  mutate(Checker_Notes = tolower(Checker_Notes)) %>%
+  filter(!grepl("drop", Checker_Notes))
+
+
+dat_chisq <- (esc_chisq(chisq = chisqs$Coefficient,
+          totaln = chisqs$SampleSizeTreatment,
+          es.type = "g"))
+
+##7 and 10 need to be converted to be negative (effect is negative)
+dat_chisq$es = dat_chisq$es *
+  c(1,1,1,1,-1,-1,1,1,1,1,1,1,-1,1,1,-1)
+chisqs$yi <- dat_chisq$es
+chisqs$vi = dat_chisq$var
+
+
+
+# relative risk stats - all were converted to OR or should be dropped
+RR <- fulldat %>%
+  filter(Coef_Type == "RR") %>%
+  mutate(Checker_Notes = tolower(Checker_Notes)) %>%
+  filter(!grepl("drop", Checker_Notes))
+
+
+# regression stats - Need to extract data directly from papers.
+regress <- fulldat %>%
+  filter(Coef_Type == "regression") %>%
+  mutate(Checker_Notes = tolower(Checker_Notes)) %>%
+  filter(!grepl("drop", Checker_Notes)) %>%
+  filter(!grepl("NONE", Reg_sdy)) 
+  
+
+regs <- esc_B(b = regress$Coefficient,       # unstandardized regression coefficient
+      sdy = regress$Reg_sdy,       # standard deviation of predicted variable y
+      grp1n = regress$SampleSizeTreatment,   # sample size of the first group
+      grp2n = regress$SampleSizeTreatment,   # sample size of the second group
+      es.type = "g") # convert to SMD; use "g" for Hedges' g
+regress$yi <- regs$es
+regress$vi = regs$var
+
+
+###
+
+non_coefdat_wBC_wCorrORT <- bind_rows(non_coefdat_wBC, corrs, ORs, tstats,
+                                      z_stats, fstats, chisqs, regress) 
+non_coefdat_wBC_wCorrORT <- non_coefdat_wBC_wCorrORT %>%
+  mutate(ind_id = 1:nrow(non_coefdat_wBC_wCorrORT)) %>%
+  mutate(Checker = ifelse(Checker == "LS",
+                          "LS",
+                          "MM"),
+         Checker = ifelse(is.na(Checker),
+                          "MM",
+                          Checker))
+
+non_coefdat_wBC_wCorrORT2 <- non_coefdat_wBC_wCorrORT
+
+non_coefdat_wBC_wCorrORT2 <- non_coefdat_wBC_wCorrORT2 %>%
+  mutate(yi = ifelse(Global.Change.Driver == "BC",
+                     -yi,
+                     yi))
+ggplot(non_coefdat_wBC_wCorrORT2,
+       aes(x = as.character(Direction.relative.to.host),
+           y = yi))+
+  ggbeeswarm::geom_quasirandom()
+  coord_cartesian(ylim = c(-5,5))
+
+ggplot(non_coefdat_wBC_wCorrORT2,
+       aes(x = Effect_Reduced_Update,
+           y = yi))+
+  ggbeeswarm::geom_quasirandom()+
+  coord_flip(ylim = c(-5,5))
+
+unique(non_coefdat_wBC_wCorrORT2$Effect_Reduced_Update)
+
+non_coefdat_wBC_wCorrORT2 <- non_coefdat_wBC_wCorrORT2 %>%
+  mutate(yi_equal_dir = ifelse((Direction.relative.to.host * yi) > 0,
+                               "Yes",
+                               ifelse((Direction.relative.to.host * yi) < 0,
+                                      "No",
+                                      'Non-sig')
+                               ))
+
+write.csv(non_coefdat_wBC_wCorrORT2,
+          "G:/Shared drives/GCD of Disease/Final_dat/Clean1_full_datU.csv", row.names = F)
+
+
+####
+##Mitchell Data
+library(taxize)
+mitchell <- read.csv("C:/Users/mikem/Documents/Research/GCD Analyses/MitchellData.csv")
+mitchell
+
+mitchell <- mitchell %>%
+  mutate(Genus = gsub( " .*$", "", SPECIES ),
+         .before = ORIGNUM)
+
+genvec <- unique(mitchell$Genus)
+
+famdat <- tax_name(genvec, get = "family", db = "itis")
+
+allfams <- famdat %>%
+  filter(!is.na(family))
+kings <- tax_name(unique(allfams$family), get = "kingdom", db = "itis")
+
+famdat$kingdom <- kings$kingdom[match(famdat$family, kings$query)]
+
+famdat1 <- famdat %>%
+  filter(!is.na(family)) %>%
+  filter(kingdom == "Plantae")
+
+famdat2 <- famdat %>%
+  filter(is.na(family) | kingdom != "Plantae")
+
+famdat2$family <- c("Lamiaceae", "Lamiaceae", "Asteraceae", "Brassicaceae",
+                    "Asteraceae", "Poaceae", "Ericaceae", "Rhamnaceae",
+                    "Lamiaceae", "Iridaceae", "Amaranthaceae", "Plantaginaceae",
+                    "Lamiaceae", "Oleaceae", "Poaceae")
+
+allfams <- rbind(famdat1, famdat2)
+
+allfams <- allfams %>%
+  filter(!is.na(family))
+
+allfams <- allfams %>%
+  mutate(family = ifelse(family == "Chenopodiaceae",
+                          "Amaranthaceae",
+                          family))
+
+write.csv(allfams, "C:/Users/mikem/Documents/Research/GCD Analyses/Mitchell_Tax.csv",
+          row.names = F)
+
+##67 families, vs 285 genera
+
+mitchell$Family = allfams$family[match(mitchell$Genus, allfams$query)]
+
+
+##42 families with >1 spp; 97 genera with >1 spp
+mitchell %>%
+  group_by(Genus) %>%
+  summarize(count = n()) %>%
+  filter(count > 1)
+
+
+
+mitchell_gen <- mitchell %>%
+  group_by(Genus) %>%
+  dplyr::select(-SPECIES, -ORIGNUM,-Family) %>%
+  mutate(count = n()) %>%
+  filter(count > 1) %>%
+  summarize_all(.funs = list(mean = mean,
+                             sd = sd)) %>%
+  pivot_longer(cols = c(EURUST_mean:AMVIRUS_mean, EURUST_sd:AMVIRUS_sd),
+               names_to = "Enemy",
+               values_to = "value") %>%
+  dplyr::select(-count_sd) %>%
+  mutate(Location_type = paste(substr(Enemy, start = 1, stop = 2), sub('.*_', '', Enemy), sep = "_"),
+         Enemy = rep(c("Rust", "Smut", "Mildew", "Virus"), each = 2, times = 194)) %>%
+  pivot_wider(id_cols = c(Genus, count_mean, Enemy),
+              values_from = value,
+              names_from = Location_type) %>%
+  dplyr::select(Genus, count_mean, Enemy, EU_mean, EU_sd, AM_mean, AM_sd)
+
+
+
+mitchell_fam <- mitchell %>%
+  group_by(Family) %>%
+  dplyr::select(-SPECIES, -ORIGNUM,-Genus) %>%
+  mutate(count = n()) %>%
+  filter(count > 1) %>%
+  summarize_all(.funs = list(mean = mean,
+                             sd = sd)) %>%
+  pivot_longer(cols = c(EURUST_mean:AMVIRUS_mean, EURUST_sd:AMVIRUS_sd),
+               names_to = "Enemy",
+               values_to = "value") %>%
+  dplyr::select(-count_sd) %>%
+  mutate(Location_type = paste(substr(Enemy, start = 1, stop = 2), sub('.*_', '', Enemy), sep = "_"),
+         Enemy = rep(c("Rust", "Smut", "Mildew", "Virus"), each = 2, times = 84)) %>%
+  pivot_wider(id_cols = c(Family, count_mean, Enemy),
+              values_from = value,
+              names_from = Location_type) %>%
+  dplyr::select(Family, count_mean, Enemy, EU_mean, EU_sd, AM_mean, AM_sd)
+
+mitchell_fam <- escalc(measure = "SMD",
+       m1i = AM_mean, sd1i = AM_sd, n1i = count_mean,
+       m2i = EU_mean, sd2i = EU_sd, n2i = count_mean,
+       data = mitchell_fam)
+
+mitchell_fam %>%
+  filter(!is.na(yi)) %>%
+  ggplot(aes(x = Enemy, y = yi))+
+  geom_boxplot()+
+  scale_y_continuous(limits = c(-7,1))
+
+mitchell_gen <- escalc(measure = "SMD",
+       m2i = AM_mean, sd2i = AM_sd, n1i = count_mean,
+       m1i = EU_mean, sd1i = EU_sd, n2i = count_mean,
+       data = mitchell_gen)
+
+mitchell_gen[1,]
+
+mitchell_gen %>%
+  filter(!is.na(yi)) %>%
+  ggplot(aes(x = Enemy, y = vi))+
+  geom_boxplot()
+  # scale_y_continuous(limits = c(-7,1))
+
+write.csv(mitchell_fam, "C:/Users/mikem/Documents/Research/GCD Analyses/Mitchell_Family.csv")
+write.csv(mitchell_gen, "C:/Users/mikem/Documents/Research/GCD Analyses/Mitchell_Genus.csv")
+
+
+
+
+

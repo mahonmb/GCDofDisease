@@ -1,0 +1,132 @@
+library(tidyverse)
+library(lme4)
+
+sleepstudy$group = rep(c("A","B"), each = 90)
+
+m1 <- lmer(Reaction ~ Days + (Days +0| Subject)+
+             (1 | Subject) + (1|group), data = sleepstudy)
+
+##Create a data frame
+##replace "m1" with model name
+##replace "Subject" with random term is
+##replace "sleepstudy" with your dataframe
+dat3 = data.frame(Slopes = ranef(m1,
+                                 condVar = TRUE)$Subject[ , 2] + fixef(m1)[2],
+                  sd.slopesc = 1.96 * sqrt(attr(ranef(m1,
+                                                      condVar = TRUE)[[1]],
+                                                "postVar")$Days[2, 2, 1:18]),
+                  lev.names=as.factor(unique(sleepstudy$Subject)))
+
+
+
+sqrt(attr(ranef(m1,
+                condVar = TRUE)[[1]],
+          "postVar")$Days[1, 1, 1:18])
+
+
+
+
+sqrt(attr(ranef(m1,
+           condVar = TRUE)[[1]],
+     "postVar")$Days[1,1,1:18])
+
+
+
+##############################################
+library(mgcv)
+library(lme4)
+library(gammit)
+
+lmer_model <- lmer(Reaction ~ Days + (Days || Subject), data = sleepstudy)
+ga_model <- gam(Reaction ~ Days + s(Subject, bs = "re") + s(Days, Subject, bs = "re"),
+                data = sleepstudy,
+                method = "REML"
+)
+
+sqrt(attr(ranef(lmer_model,
+                condVar = T)[[1]],
+          "postVar")$Days[1, 1, 1:18])
+
+extract_ranef(ga_model) %>%
+  filter(effect == "Days")
+
+remotes::install_github('m-clark/mixedup')
+
+
+#########
+X1_range <- seq(1, to=27, by=1)
+
+a_logits <- -.2 + 
+  .1*X1_range
+
+b_logits <- -1.20 + 
+  .1*X1_range
+
+c_logits <- -2.99 + 
+  .1*X1_range
+
+# Compute the probibilities (this is what will actually get plotted):
+a_probs <- exp(a_logits)/(1 + exp(a_logits))
+b_probs <- exp(b_logits)/(1 + exp(b_logits))
+c_probs <- exp(c_logits)/(1 + exp(c_logits))
+
+log((a_probs[27] / a_probs[1]))
+log((b_probs[27] / b_probs[1]))
+log((c_probs[27] / c_probs[1]))
+
+log(a_probs[27] / c_probs[27])
+log(a_probs[1] / c_probs[1])
+
+
+
+par()
+
+plot(X1_range, a_probs, 
+     ylim=c(0,1),
+     type="l", 
+     lwd=3, 
+     lty=2, 
+     col="gold", 
+     xlab="X1", ylab="P(outcome)")
+
+
+# Add the line for people who are in the b group
+lines(X1_range, b_probs, 
+      type="l", 
+      lwd=3, 
+      lty=3, 
+      col="turquoise2")
+
+# Add the line for people who are in the c group
+lines(X1_range, c_probs, 
+      type="l", 
+      lwd=3, 
+      lty=4, 
+      col="orangered")
+
+
+
+
+
+
+
+##This gets 95% CI
+dat3$conf.low = dat3$Slopes - dat3$sd.slopesc
+dat3$conf.high = dat3$Slopes + dat3$sd.slopesc
+
+dat3$direction = ifelse(dat3$conf.low < 0 & 0 < dat3$conf.high,
+                        "none",
+                        ifelse(dat3$conf.low < 0 & 0 > dat3$conf.high,
+                               "decrease",
+                               "increase"))
+
+dat3$lev.names = fct_reorder(dat3$lev.names, dat3$Slopes)
+
+ggplot(dat3, aes(x = lev.names, y = Slopes))+
+  geom_point(aes(color = direction))+
+  geom_errorbar(aes(ymin = conf.low,
+                    ymax = conf.high),
+                width = 0)+
+  geom_hline(yintercept = 0)+
+  geom_hline(yintercept = 10.47, linetype = "dashed")+
+  coord_flip()

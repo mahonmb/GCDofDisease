@@ -1,0 +1,2083 @@
+---
+title: "Global change drivers and the risk of infectious disease - Supplemental RMarkdown"
+author: "Rohr, J.R., M.B. Mahon, A. Sack, C. Barbera, E. Brown, D.J. Civitello, J.M. Cohen, L. de Wit, M. Forstchen, F.W. Halliday, P. Heffernan, S.A. Knutie, A. Korotasz, J. Larson, S.L. Rumschlag, E. Selland, A. Shepack, N. Vincent, and O.A. Young"
+date: "6/23/2022"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+# Setup R environment
+
+Read in R packages, make a ggplot theme to be used throughout the code and for all figures.
+
+```{r Environment Setup, message = FALSE, warning = FALSE}
+library(metafor)
+library(MuMIn)
+library(tidyverse)
+library(multcomp)
+library(emmeans)
+library(ggeffects)
+library(forcats)
+library(stringr)
+
+##Make ggplot theme to use throughout
+theme_JR <- function (base_size = 12, base_family = "") 
+{
+    theme(
+    panel.background = element_rect(fill=NA),
+    panel.grid = element_blank(),
+    panel.border = element_rect(color = "black", fill = NA),
+    axis.line = element_line(color="black"),
+    legend.title = element_text(size=18,color="black"),
+    legend.text = element_text(size=16,color="black"),
+    legend.key = element_rect(fill=NA,color=NA),
+    axis.text = element_text(size=12,color="black"),
+    axis.title = element_text(size=16,color="black"),
+    strip.background =element_rect(fill=NA, color = "black")
+    )
+}
+```
+
+```{r, echo = F}
+setwd("C:/Users/mikem/Documents/Research/GCD Analyses/")
+```
+
+```{r Read and clean data, echo = FALSE}
+##Read in dataset
+fulldat <- read.csv("FinalData.csv")
+
+# Some variances are VERY VERY large, others are VERY VERY small;
+# Wolfgang Viechtbauer suggests changing those very large and very small values 
+# to less extreme values
+# This removes the error/warning that I had been getting.
+# Essentially, if there were >7 magnitudes of difference between the highest and
+# lowest value, it spit out a warning; the higher variances needed to be fixed
+# more than  the lower variances (capped higher variances at highest value below 10)
+# Two lowest variances were ridiculously small, change to 3rd lowest fixes these
+
+decr <- sort(fulldat$vi, decreasing = T)
+incr <- sort(fulldat$vi)
+
+fulldat2 = fulldat %>%
+  mutate(vi2 = ifelse(vi < incr[9],
+                      incr[9],
+                      ifelse(vi > decr[min(which(decr < 10))],
+                             decr[min(which(decr < 10))],
+                             vi)))
+# 
+# fulldat2 <- fulldat2 %>%
+#   mutate(yi = ifelse(Effect_Reduced_Update == "Enemy Release",
+#                      -yi,
+#                      yi))
+
+```
+
+## Grand Mean effect of GCDs on disease
+
+Analysis of grand mean indicates that overall, global change will increase disease.
+
+```{r, Overall model}
+mgrand <- rma.mv(yi, vi2,
+             random = list(~1|Citation.number, ~1|ind_id),
+             data = fulldat2)
+summary(mgrand)
+
+##I2 (heterogeneity statistic) calculation
+W <- diag(1/mgrand$vi)
+X <- mgrand$X
+P <- W - W %*% X %*% solve(t(X) %*% W %*% X) %*% t(X) %*% W
+100 * sum(mgrand$sigma2) / (sum(mgrand$sigma2) + (mgrand$k-mgrand$p)/sum(diag(P)))
+
+##I2 = 0.9987599
+
+##70.37616 is due to between study variation; 29.49983 is due to within study variation
+100 * mgrand$sigma2 / (sum(mgrand$sigma2) + (mgrand$k-mgrand$p)/sum(diag(P)))
+
+```
+
+Funnel plot to investigate publication biases in dataset.
+
+```{r Funnel plot, echo = F}
+
+##Funnel plot to show potential for bias and heterogeneity
+
+estimate = 0.2222
+se = 0.0442
+
+estimate = c(0.6735, 0.3225, 0.0576, -0.1343, 0.5269)
+se = c(0.1062, 0.0777, 0.1100, 0.0748, 0.1224)
+
+Maxobsse = sqrt(max(fulldat2$vi2))+1
+
+#Compute vectors of the lower-limit and upper limit values for
+#the 95% CI region
+ll95 = estimate-(1.96*Maxobsse)
+ul95 = estimate+(1.96*Maxobsse)
+
+#Put all calculated values into one data frame
+#You might get a warning about '...row names were found from a short variable...' 
+#You can ignore it.
+dfCI = data.frame(x = c(ll95, ul95, estimate),
+                  y = c(rep(Maxobsse, times = 10), rep(0,time = 5)),
+                  Global.Change.Driver2 = rep(c("BC", "CC","CP", "HLC", "IS"), times = 3)
+                  )
+
+dfEST = data.frame(Maxobsse = Maxobsse,
+                   estimate = estimate,
+                   Global.Change.Driver2 = c("BC", "CC","CP", "HLC", "IS")
+                   )
+
+GCD <- c(
+  BC = "Biodiversity Change",
+  CC = "Climate Change",
+  CP = "Chemical Pollution",
+  HLC = "Habitat Loss or Change",
+  IS = "Introduced Species"
+  )
+
+fulldat2$Global.Change.Driver2 = factor(fulldat2$Global.Change.Driver)
+fulldat2$Global.Change.Driver2 = factor(fulldat2$Global.Change.Driver2,
+                        levels(fulldat2$Global.Change.Driver2)[c(1,3,2,4,5)])
+
+ggplot(fulldat2, aes(x = yi, y = sqrt(vi2)))+
+  facet_wrap(~Global.Change.Driver2,labeller = labeller(Global.Change.Driver2 = GCD))+
+  scale_y_reverse()+
+  geom_polygon(data = dfCI, aes(x = x, y = y),
+               fill = "white", color = "black", size = 1,
+               linetype = "dashed")+
+  geom_segment(data = dfEST, aes(x = estimate, y = 0, xend = estimate, yend = Maxobsse),
+               size = 1, linetype = "dashed")+
+  # geom_point()+
+  geom_point(aes(color = Global.Change.Driver2))+
+    scale_color_manual(values = c("#5E976E",
+                                "#58355E",
+                                "#FFCA3A",
+                                "#EC0B43",
+                                "#63ADF2"))+
+  coord_cartesian(ylim = c(Maxobsse-1,0))+
+  ylab("Standard Error")+
+  xlab("Hedge's G")+
+  theme_JR()+
+  theme(panel.background = element_rect(fill = "grey"),
+        panel.grid.major.y = element_line(color = "white"),
+        legend.position = "none")
+
+
+ggsave("FunnelPlotGCD.tiff",
+       dpi = 300,
+       width = 6,
+       height = 4.75,
+       units = "in")
+
+```
+
+Conduct an Egger's test to test for asymmetry in funnels plot. It can identify small-study effects, but not tell directly whether publication bias exists. To evaluate the funnel asymmetry, we inspect the size of the intercept when the response is the effect size predictor is either SE or variance (meta-regression, so weighted by inverse of SE), and if it differs significantly from zero. When this is the case, Egger's test indicates funnel plot asymmetry. Additionally, test for time lag effect.
+```{r Eggers Test}
+
+###Publication bias analysis
+
+##Time lag and Egger's test for multilevel models
+
+##Egger's test
+mpbias1 <- rma.mv(yi, vi2, mods = ~ sqrt(vi2),
+                 random = list(~1|Citation.number, ~1|ind_id),
+                 data = fulldat2)
+summary(mpbias1)
+
+##note that, per Nakagawa 2022, if slope of sqrt(vi2) [SE] is significant,
+##use variance (it is significant, so use model below)
+
+mpbias2 <- rma.mv(yi, vi2, mods = ~ vi2,
+                 random = list(~1|Citation.number, ~1|ind_id),
+                 data = fulldat2)
+summary(mpbias2)
+
+##Vi2 is still significant, but that's alright.
+##intercept is NOT significantly different from zero, suggesting that 
+##there is not asymmetry in the funnel plot, which means there is no small-study
+##publication bias present
+
+##time lag analysis
+x_numbers <- regmatches(fulldat2$Citation, gregexpr("[[:digit:]]+", fulldat2$Citation))  # Apply gregexpr & regmatches
+
+x_numhold <- list()
+for(i in 1:length(x_numbers)){
+  if(is_empty(x_numbers[[i]])){
+    x_numhold[[i]] = "None"
+  } else {
+    x_numhold[[i]] = grep("20|19", names(which(sapply(x_numbers[[i]], nchar) == 4)), value = T)
+  }
+}
+
+x_numhold[[28]] = 2012
+x_numhold[[29]] = 2012
+x_numhold[[139]] = 2014
+x_numhold[[172]] = 2015
+x_numhold[[177]] = 2017
+x_numhold[[204]] = 2016
+x_numhold[[205]] = 2016
+x_numhold[[206]] = 2016
+x_numhold[[282]] = 2006
+x_numhold[[545]] = 2008
+x_numhold[[661]] = 2012
+x_numhold[[724]] = 2004
+x_numhold[[934]] = 2006
+x_numhold[[975]] = 2001
+x_numhold[[1059]] = 2013
+x_numhold[[1102]] = 2013
+x_numhold[[1103]] = 2013
+x_numhold[[1104]] = 2013
+x_numhold[[1162]] = 2013
+x_numhold[[1163]] = 2013
+x_numhold[[1164]] = 2013
+x_numhold[[1165]] = 2013
+x_numhold[[1339]] = 2014
+x_numhold[[1422]] = 2016
+x_numhold[[1518]] = 2015
+x_numhold[[1519]] = 2014
+x_numhold[[1520]] = 2014
+x_numhold[[1534]] = 2013
+x_numhold[[1572]] = 2017
+
+fulldat2$Year = as.numeric(unlist(x_numhold))
+
+##time-lag bias model
+tlbias <- rma.mv(yi, vi2, mods = ~ Year,
+                  random = list(~1|Citation.number, ~1|ind_id),
+                  data = fulldat2)
+summary(tlbias)
+
+
+##significant effect of Year value indicates that as time goes on,
+##less strong positive effects are published
+##
+
+##However, visualizing the data suggests that the effect may not be analytically
+##important; a single study from 1960s had relatively strong positive effect;
+##additionally, handful of strongly negative effect sizes since 2010 seems to
+##be driving effect as well; may be an indication of publication bias against
+##reduction in disease early in dataset; however, time lag bias is not strength
+##of effect, but rather driven by first 20 years of dataset being positive 
+##effect sizes. Effect is weak (-0.03 per year), which by the end of the dataset
+##suggests an effect size that is not different from zero, so if there is a bias
+##it is a bias towards positive effects early on in dataset, not later. This is
+##not an enormous concern, because 96% of the dataset was published since 2000. 
+##So, shift since 2000 is -0.54, while shift from 1968 is -1.5. 
+
+data.frame(predict(tlbias, matrix(seq(min(fulldat2$Year), max(fulldat2$Year), 1)))) %>%
+  mutate(Year = seq(min(fulldat2$Year), max(fulldat2$Year), 1)) %>%
+  ggplot(aes(x = Year, y = pred))+
+  geom_hline(yintercept = 0, size = 1, linetype = "dashed")+
+  geom_point(data = fulldat2, aes(x = Year, y = yi), shape = 21)+
+  geom_ribbon(aes(ymin = ci.lb, ymax = ci.ub), alpha = 0.3, fill = "grey43")+
+  geom_line(color = "purple", size = 1)+
+  scale_x_continuous(breaks = seq(1970,2010,10))+
+  labs(y = "Hedge's G")+
+  theme_JR()
+
+ggsave("TimeLag.tiff",
+       dpi = 300,
+       width = 5,
+       height = 4.75,
+       units = "in")
+
+```
+
+Leave one out analysis to test for robustness of our analyses. For loop is not run due to time constraints, but code is presented. Leave one out analyses suggests that our results are robust to removal of individual studies.
+
+```{r}
+# 
+subdat = subgranmod = NULL
+hld = data.frame(beta = 0,
+                 se = 0)
+
+# for(i in 1:length(unique(fulldat2$Citation.number))) {
+#   subdat = subgranmod = NULL
+#   subdat <- fulldat2 %>%
+#     filter(Citation.number != unique(fulldat2$Citation.number)[i])
+#   subgranmod <- rma.mv(yi, vi2,
+#                        random = list(~1|Citation.number, ~1|ind_id),
+#                        data = subdat)
+#   hld[i,1] = subgranmod$beta[1]
+#   hld[i,2] = subgranmod$se
+# }
+# saveRDS(hld, "G:/Shared drives/GCD of Disease/Final_dat/Leave1Outdat.RDS")
+
+hld <- readRDS("G:/Shared drives/GCD of Disease/Final_dat/Leave1Outdat.RDS")
+
+ggplot(hld, aes(x = 1:nrow(hld), y = beta))+
+  geom_errorbar(aes(ymin = beta - se, ymax = beta + se), width = 0)+
+  geom_point(color = "light grey", size = 2)+
+  geom_hline(yintercept = 0.222, color = "#EA2B1F", size = 1)+
+  geom_hline(yintercept = 0.222+0.0442, color = "#EA2B1F", size = 1)+
+  geom_hline(yintercept = 0.222-0.0442, color = "#EA2B1F", size = 1)+
+  scale_x_continuous(limits = c(0,580), expand = c(0,0))+
+  labs(x = "Study",
+       y = "Hedge's G")+
+  theme_JR()+
+  theme(axis.text.x = element_blank(),
+        axis.ticks.x = element_blank())
+
+ggsave("Leave1out.tiff",
+       dpi = 300,
+       width = 5,
+       height = 4.65,
+       units = "in")
+
+
+```
+
+Forest plots to show distribution of effect sizes and variances among global change drivers.
+
+```{r, echo = FALSE}
+
+data2 = fulldat2
+
+##Weights as percentages
+data2$weights = rowSums(weights(mgrand, type = "matrix"))/100
+data2 = data2[order(fulldat2$yi),]
+
+data2$x = seq(1,nrow(data2)*2,2)
+set.seed(20)
+data2$x2 = sample(data2$x, nrow(data2))
+
+data2$Global.Change.Driver = as.factor(data2$Global.Change.Driver)
+data2$Global.Change.Driver = factor(data2$Global.Change.Driver,
+                        levels(data2$Global.Change.Driver)[c(1,3,2,4,5)])
+
+ggplot(data2, aes(y = yi, x = x2))+
+  # scale_y_continuous(limits = c(-7.5,7.5),
+  #                    expand = c(0,0))+
+  facet_wrap(~Global.Change.Driver)+
+  scale_x_reverse()+
+  geom_hline(yintercept = 0, linetype = "dashed")+
+  geom_errorbar(aes(x = x2,
+                    ymax = yi + sqrt(vi2),
+                    ymin = yi - sqrt(vi2)),
+                width = 0)+
+  geom_point(aes(size = weights), shape = 21)+
+  # geom_errorbar(aes(x = max(x), y = 0.1875,
+  #                   ymin = 0.095,
+  #                   ymax = 0.28), width = 10)+
+  # geom_point(aes(x = max(x), y = 0.1875), shape = 23, fill = NA, size = 4)+
+  scale_color_manual(values = c("blue","grey","red"),
+                     name = "")+
+  # coord_flip(ylim = c(-10,10))+
+  ylab("Hedge's G")+
+  coord_flip()+
+  theme_JR()+
+  theme(axis.text.y = element_blank(),
+        axis.title.y = element_blank(),
+        axis.ticks.y = element_blank(),
+        axis.line.y = element_blank(),
+        legend.position = "none")
+
+ggsave("ForestPlot.tiff",
+       dpi = 300,
+       height = 5.5,
+       width = 7.5,
+       units = "in")
+
+```
+
+
+
+# Analyses
+
+## Step 1: Test for effects of Global Change Drivers (GCDs)
+
+Generally, we find that biodiversity change, introduced species, and climate change significantly increase disease. Habitat loss/change significantly decreases disease. Chemical pollution showed a non-significant effect on disease. 
+
+```{r General Effects of GCDs, warning = FALSE}
+options(contrasts = c("contr.treatment","contr.poly"))
+
+m2 <- rma.mv(yi, vi2,
+             mods = ~  Global.Change.Driver - 1,
+             random = list(~1|Citation.number, ~1|ind_id),
+             data = fulldat2)
+summary(m2)
+
+##Set up emmeans reference grid
+m2g <- qdrg(object = m2, data = fulldat2)
+
+
+m2em <- emmeans(m2g, ~ Global.Change.Driver)
+CLD(m2em)
+
+
+```
+
+```{r Figure for Main GCDs, echo = FALSE}
+
+figdat_GCD <- data.frame(m2em)
+figdat_GCD$grouping = c("*A", "*AB", "BC", "C", "*A")
+figdat_GCD$EffLab = c(5,3,4,2,1)
+
+#create a new column for GCD labels used in figure 
+figdat_GCD$Global.Change.Driver2 <- c("Biodiversity Change", 
+                                      "Climate Change", 
+                                      "Chemical Pollution", 
+                                      "Habitat Loss or Change",
+                                      "Introduced Species")
+
+
+figdat_GCD$k = (fulldat2 %>%
+  group_by(Global.Change.Driver) %>%
+  summarize(count = n()))$count
+
+figdat_GCD$n = (fulldat2 %>%
+  group_by(Global.Change.Driver) %>%
+  summarize(count = length(unique(Citation.number))))$count
+
+
+figdat_GCD$GCD_xlab <- paste(figdat_GCD$Global.Change.Driver2, "\n(n = ", 
+                             figdat_GCD$n, ", k = ",
+                             figdat_GCD$k, ")", sep = "")
+
+#make the plot
+ggplot(figdat_GCD, aes(x = GCD_xlab, 
+                       y = emmean,
+                       color = Global.Change.Driver2)) +
+    geom_hline(yintercept = 0,                   #make a reference line at 0
+             linetype = "dashed", 
+             color = "black", 
+             size = 1) +
+  geom_point(size = 3) +                               #plot points
+  geom_errorbar(aes(ymin = asymp.LCL,        #include error bars
+                    ymax = asymp.UCL),     
+                width=0.25,
+                size = 1) +                   #adjust width of bar
+  geom_text(aes(label = grouping,
+                x = EffLab),
+            color = "black",
+            position = position_nudge(x = 0.25)
+            )+
+  # scale_y_continuous(limits = c(0,1.05),      #change limits of Y axis
+  #                    breaks = c(0,0.5,1))+      #set Y axis breaks 
+
+  
+  scale_color_manual(values = c("#5E976E",
+                                "#58355E",
+                                "#FFCA3A",
+                                "#EC0B43",
+                                "#63ADF2"))+
+  xlab("Global Change Driver") +               #relabel X and Y axes
+  ylab("Hedge's G") +
+  scale_x_discrete(limits = rev(levels(as.factor(figdat_GCD$GCD_xlab))))+
+  coord_flip()+
+  theme_JR()+                                   #call your theme
+  theme(legend.position = "none",
+        axis.title.y = element_blank())
+
+ggsave("GCDMetaFig2.tiff",
+       dpi = 300,
+       width = 4.85,
+       height = 3.5,
+       units = "in")
+
+```
+
+.
+
+## Step 2: Test for Subfactors: i.e., subgroupings of ALL GCDs
+### Information on Step 2
+- In Introduced Species:
+  - Spillover is own subfactor
+  - Split between native to invasive and invasive to native
+  - Spillback is own subfactor
+
+We see that only a small handful of subfactors actually significantly affect disease
+- Biodiversity loss, mean temperature, CO~2~, and enemy release increase disease
+- Urbanization reduces disease
+- Fungicides marginally increase disease (p = 0.0676)
+- All other subfactors have non-significant effects on disease
+
+
+```{r Subfactor analyses}
+
+mGCDriver_sub <- rma.mv(yi, vi2,
+             mods = ~  Effect_Reduced_Update - 1,
+             random = list(~1|Citation.number, ~1|ind_id),
+             data = fulldat2)
+summary(mGCDriver_sub)
+
+```
+
+```{r Subfactor figure, echo = FALSE, warning = FALSE}
+figdat_sub <- data.frame(est = mGCDriver_sub$beta,
+                         ci.low = mGCDriver_sub$ci.lb,
+                         ci.up = mGCDriver_sub$ci.ub,
+                         GCD = row.names(mGCDriver_sub$beta))
+
+figdat_sub$Effect_Reduced_Update = as.factor(gsub('Effect_Reduced_Update', '', figdat_sub$GCD))
+
+figdat_sub$GCD = fct_rev(fulldat2$Global.Change.Driver[match(figdat_sub$Effect_Reduced_Update,
+                                                              fulldat2$Effect_Reduced_Update)])
+
+# 
+figdat_sub$GCD = fct_rev(figdat_sub$GCD)
+
+figdat_sub$Effect_Reduced_Update <- str_to_sentence(figdat_sub$Effect_Reduced_Update)
+
+figdat_sub$Effect_Reduced_Update[4] = "CO2"
+figdat_sub$Effect_Reduced_Update[19] = "Temperature variability or ENSO"
+figdat_sub$Effect_Reduced_Update[21] = "UVB"
+
+figdat_sub$Effect_Reduced_Update = as.factor(figdat_sub$Effect_Reduced_Update)
+
+figdat_sub$k = (fulldat2 %>%
+  group_by(Effect_Reduced_Update) %>%
+  summarize(count = n()))$count
+
+figdat_sub$n = (fulldat2 %>%
+  group_by(Effect_Reduced_Update) %>%
+  summarize(count = length(unique(Citation.number))))$count
+
+
+figdat_sub$GCD_xlab <- as.factor(paste(figdat_sub$Effect_Reduced_Update, "\n(n = ", 
+                             figdat_sub$n, ", k = ",
+                             figdat_sub$k, ")", sep = ""))
+# 
+
+
+figdat_sub$GCD_xlab = factor(figdat_sub$GCD_xlab,
+                                          levels(figdat_sub$GCD_xlab)[c(1, 2,
+                                                                                     7, 9:11, 13, 14, 18,
+                                                                                     3, 4, 12, 15, 19, 21,
+                                                                                     5, 8, 20,
+                                                                                     6, 16, 17)])
+
+# figdat_sub$GCD = factor(figdat_sub$GCD,
+#                         levels(figdat_sub$GCD)[c(5,3,4,2,1)])
+
+
+#make the plot
+ggplot(figdat_sub, aes(x = GCD_xlab, 
+                       y=est,
+                       color = GCD)) +            
+    geom_hline(yintercept = 0,                   #make a reference line at 0
+             linetype = "dashed", 
+             color = "black", 
+             size = 1) +
+  geom_point(size = 2.5) +                               #plot points
+  geom_errorbar(aes(ymin = ci.low,        #include error bars
+                    ymax = ci.up),     
+                width=0.33) +                   #adjust width of bar
+  # scale_y_continuous(limits = c(0,1.05),      #change limits of Y axis
+  #                    breaks = c(0,0.5,1))+      #set Y axis breaks 
+  xlab("") +               #relabel X and Y axes
+  ylab("Hedge's G") +
+  scale_color_manual(values = c("#5E976E",
+                                "#FFCA3A",
+                                "#58355E",
+                                "#EC0B43",
+                                "#63ADF2"))+
+  coord_flip()+
+  scale_x_discrete(limits = rev(levels(figdat_sub$GCD_xlab)))+
+  theme_JR()+                                   #call your theme
+  theme(legend.position = "none",
+        axis.text.y = element_text(size = 9),
+        axis.title.y = element_blank())
+
+ggsave("GCDFig3NEW.tiff",
+       dpi = 300,
+       width = 4.4,
+       height = 7,
+       units = "in")
+
+```
+
+
+## Step 3: Test for Interactions between GCDs and other factors:
+### Checking for generalities of the patterns
+Checking for main and interactive effects between study, host, and parasite factors and the main global change drivers.
+
+
+```{r Interaction Models - Generality of Findings Setup, echo = FALSE}
+
+#Regression models that include two-way interactions between GC Drivers and each other factor
+#Returns to deviations from a reference level
+options(contrasts = c("contr.treatment","contr.poly"))
+
+##Host Type
+#<3 replicates for Birds, Fish, and Mollusks in at least one GCDriver category
+dathost = fulldat2 %>%
+  filter(!is.na(Native.host.type_reduced_Final)) %>%
+  filter(!(Native.host.type_reduced_Final %in% c("Bird", "Fish", "Mollusk", "Animal", "Coral")))
+
+
+
+##Parasite type
+#<3 replicates for Arthropods in at least one GCDriver category
+datenemy = fulldat2 %>%
+  filter(!is.na(Enemy.type_further_reduced_Final)) %>%
+  filter(Enemy.type_further_reduced_Final != "Arthropod")
+
+
+
+##Vectors - Yes/No
+#<2 replicates in the Biodiversity and Chemical Contaminant categories
+vecdat <- fulldat2 %>%
+  filter(!is.na(Vector)) %>%
+  filter(!(Global.Change.Driver %in% c("BC", "CP")))
+
+##Vector-borne
+vecbordat = fulldat2[!is.na(fulldat2$Vector.borne),]
+
+##Ectoparasites; drop NAs
+ectodat = fulldat2[!is.na(fulldat2$Ectoparasite),]
+
+##Human parasites; drop NAs
+humdat = fulldat2[!is.na(fulldat2$Human.ParasiteBoth.NA),]
+
+##Venue
+#No lab-based habitat loss studies
+vendat = subset(fulldat2, Global.Change.Driver != "HLC")
+
+###Habitat
+habdat = fulldat2[ complete.cases(fulldat2$Habitat), ]
+
+###Route
+datRoute = subset(fulldat2, !is.na(RouteBoth.NA))
+
+###Free Living Stages
+datFLstage = subset(fulldat2, !is.na(Free.living.stages))
+
+###Endpoint: host/parasite
+datEndpoint = subset(fulldat2, !is.na(Endpoint_Host_Parasite))
+
+###Macroparasite: Y/N
+datMacroparasite = subset(fulldat2, !is.na(Macroparasite) & Macroparasite != "Both")
+
+###Thermy of host
+datHostThermy = subset(fulldat2, !is.na(Ectothermic.host))
+
+```
+
+
+### Host/Parasite Endpoint
+There are differences between host and parasite endpoints in response to  biodiversity change, introduced species, and chemical pollution. Habitat loss and climate change indicate no differences in response according to host/parasite endpoint. For BC, IS, and CP, all show that parasite endpoints increase more in response to GCD than host endpoints. 
+
+```{r Endpoint}
+
+##Number of replicates
+nrow(fulldat2)
+
+##Main effect of endpoint
+mEndpoint <- rma.mv(yi, vi2,
+                  mods = ~ Endpoint_Host_Parasite + Global.Change.Driver,
+                  random = list(~1|Citation.number, ~1|ind_id),
+                  data=fulldat2, method = "ML")
+mEndpointIntML <- rma.mv(yi, vi2,
+                  mods = ~ Endpoint_Host_Parasite * Global.Change.Driver,
+                  random = list(~1|Citation.number, ~1|ind_id),
+                  data=fulldat2, method = "ML")
+
+##different; interaction is significant
+anova(mEndpoint, mEndpointIntML)
+
+
+mEndpointInt <- rma.mv(yi, vi2,
+       mods = ~ Endpoint_Host_Parasite * Global.Change.Driver,
+       random = list(~1|Citation.number, ~1|ind_id),
+       data=fulldat2)
+
+
+##Currently, testing whether the effect of GCDs are similar across endpoints
+##Set up emmeans reference grid
+mEndg <- qdrg(object = mEndpointInt, data = fulldat2)
+
+mEndgem <- emmeans(mEndg, ~ Endpoint_Host_Parasite|Global.Change.Driver)
+
+##Host and parasite are different in BC, CP, and IS
+pairs(mEndgem)
+```
+
+```{r Endpoint figure, echo = FALSE}
+##Data
+dat1 <- data.frame(mEndgem)
+dat1$Global.Change.Driver <- as.factor(dat1$Global.Change.Driver)
+
+dat1$Global.Change.Driver <- factor(dat1$Global.Change.Driver,
+                                          levels(dat1$Global.Change.Driver)[c(1,3,2,4,5)]) 
+
+#make the plot
+ggplot(dat1, aes(x = Global.Change.Driver, 
+                 y = emmean,
+                 shape = Endpoint_Host_Parasite,
+                 color = Global.Change.Driver)) +            #subtract 2 to adjust range of response
+  geom_point(position = position_dodge(width = 0.2),
+             size = 2.5) +                               #plot points
+  geom_errorbar(aes(ymin = asymp.LCL,        #include error bars
+                    ymax = asymp.UCL),     
+                width=0.25,
+                position = position_dodge(width = 0.2)) +                   #adjust width of bar
+  # scale_y_continuous(limits = c(0,1.05),      #change limits of Y axis
+  #                    breaks = c(0,0.5,1))+      #set Y axis breaks 
+  geom_hline(yintercept = 0,                   #make a reference line at 0
+             linetype = "dashed", 
+             color = "black", 
+             size = 1) +
+  scale_color_manual(values = c("#5E976E",
+                                "#58355E",
+                                "#FFCA3A",
+                                "#EC0B43",
+                                "#63ADF2"),
+                     name = "Global Change Driver",
+                     guide = "none")+
+  scale_shape_manual(values = c(16,17),
+                     name = "Endpoint")+
+  xlab("Global Change Driver") +               #relabel X and Y axes
+  ylab("Hedge's G") +
+  coord_flip()+
+  theme_JR()     
+
+
+ggsave("GCDFigS12.tiff",
+       dpi = 300,
+       width = 6.5,
+       height = 4.65,
+       units = "in")
+```
+
+
+### Host Taxon
+Model indicates a significant interaction, but post host test indicates that only amphibian/reptile is different from arthropods and plants in response to climate change. No other differences among host taxa.
+
+```{r Taxon}
+
+##Number of replicates
+nrow(dathost)
+
+mHost_Taxon <- rma.mv(yi, vi2,
+                  mods = ~ Native.host.type_reduced_Final + Global.Change.Driver,
+                  random = list(~1|Citation.number, ~1|ind_id),
+                  data=dathost, method = "ML")
+mHost_TaxonIntML <- rma.mv(yi, vi2,
+                  mods = ~ Native.host.type_reduced_Final * Global.Change.Driver,
+                  random = list(~1|Citation.number, ~1|ind_id),
+                  data=dathost, method = "ML")
+
+##different
+anova(mHost_Taxon, mHost_TaxonIntML)
+
+
+mHost_TaxonInt <- rma.mv(yi, vi2,
+       mods = ~ Native.host.type_reduced_Final * Global.Change.Driver,
+       random = list(~1|Citation.number, ~1|ind_id),
+       data=dathost)
+
+
+##Currently, testing whether the effect of GCDs are similar across endpoints
+##Set up emmeans reference grid
+mHost_Taxong <- qdrg(object = mHost_TaxonInt, data = dathost)
+
+mHost_Taxongem <- emmeans(mHost_Taxong, ~ Native.host.type_reduced_Final|Global.Change.Driver)
+
+##Only different in CC
+pairs(mHost_Taxongem)
+
+```
+
+```{r Host Taxon Figure, echo = FALSE}
+
+datfig_Host <- data.frame(mHost_Taxongem)
+
+#make the plot
+ggplot(datfig_Host, aes(x = Native.host.type_reduced_Final, 
+                 y=emmean,
+                 color = Native.host.type_reduced_Final)) +            #subtract 2 to adjust range of response
+  facet_wrap(~Global.Change.Driver) + 
+  geom_point(position = position_dodge(width = 0.2),
+             size = 2.5) +                               #plot points
+  geom_errorbar(aes(ymin = asymp.LCL,        #include error bars
+                    ymax = asymp.UCL),     
+                width=0.25,
+                position = position_dodge(width = 0.2)) +                   #adjust width of bar
+  geom_hline(yintercept = 0,                   #make a reference line at 0
+             linetype = "dashed", 
+             color = "black", 
+             size = 1) +
+  xlab("Enemy Taxon") +               #relabel X and Y axes
+  ylab("Hedge's G") +
+  coord_flip()+
+  theme_JR()  +
+  theme(legend.position = "none")
+
+
+ggsave("GCDFigSHTax.tiff",
+       dpi = 300,
+       width = 6.5,
+       height = 4.65,
+       units = "in")
+
+```
+
+### Parasite Taxon
+Some differences among parasite taxon. Interaction model suggests only differences in responses among taxa are within biodiversity change, introduced species, and Habitat loss and change
+- Helminths respond more positively than bacteria, fungi, and viruses to biodiversity change
+- Fungi respond more positively than viruses to introduced species
+
+```{r}
+##Number of replicates
+nrow(datenemy)
+
+
+mEnemy_Taxon <- rma.mv(yi, vi2,
+                  mods = ~ Enemy.type_further_reduced_Final + Global.Change.Driver,
+                  random = list(~1|Citation.number, ~1|ind_id),
+                  data=datenemy, method = "ML")
+mEnemy_TaxonIntML <- rma.mv(yi, vi2,
+                  mods = ~ Enemy.type_further_reduced_Final * Global.Change.Driver,
+                  random = list(~1|Citation.number, ~1|ind_id),
+                  data=datenemy, method = "ML")
+
+##very different
+anova(mEnemy_Taxon, mEnemy_TaxonIntML)
+
+mEnemy_TaxonInt <- rma.mv(yi, vi2,
+                      mods = ~ Enemy.type_further_reduced_Final * Global.Change.Driver,
+                      random = list(~1|Citation.number, ~1|ind_id), data=datenemy)
+
+##Set up emmeans reference grid
+mEnemyg <- qdrg(object = mEnemy_TaxonInt, data = datenemy)
+
+mEnemygem <- emmeans(mEnemyg, ~ Enemy.type_further_reduced_Final|Global.Change.Driver)
+
+#
+pairs((mEnemygem))
+
+```
+
+```{r Parasite figure, echo = FALSE}
+
+datfig_Enemy <- data.frame(mEnemygem)
+
+#make the plot
+ggplot(datfig_Enemy, aes(x = Enemy.type_further_reduced_Final, 
+                 y=emmean,
+                 color = Enemy.type_further_reduced_Final)) +            #subtract 2 to adjust range of response
+  facet_wrap(~Global.Change.Driver) + 
+  geom_point(position = position_dodge(width = 0.2),
+             size = 2.5) +                               #plot points
+  geom_errorbar(aes(ymin = asymp.LCL,        #include error bars
+                    ymax = asymp.UCL),     
+                width=0.25,
+                position = position_dodge(width = 0.2)) +                   #adjust width of bar
+  geom_hline(yintercept = 0,                   #make a reference line at 0
+             linetype = "dashed", 
+             color = "black", 
+             size = 1) +
+  xlab("Enemy Taxon") +               #relabel X and Y axes
+  ylab("Hedge's G") +
+  coord_flip()+
+  theme_JR()  +
+  theme(legend.position = "none")
+
+
+ggsave("GCDFigS6.tiff",
+       dpi = 300,
+       width = 6.5,
+       height = 4.65,
+       units = "in")
+```
+
+### Vector 
+Significant difference between vector and non-vector parasites in Habitat Loss/Change and Climate Change. In Habitat Loss/Change, vector parasites decrease, while non vectors do not change (CIs overlap 0). In Climate Change, vectors are predicted to increase more than non vectors.
+```{r Vector}
+##Number of replicates
+nrow(vecdat)
+
+mVector <- rma.mv(yi, vi2,
+                  mods = ~ Vector + Global.Change.Driver,
+                  random = list(~1|Citation.number, ~1|ind_id),
+                  data=vecdat, method = "ML")
+mVectorInt <- rma.mv(yi, vi2,
+                  mods = ~ Vector * Global.Change.Driver,
+                  random = list(~1|Citation.number, ~1|ind_id),
+                  data=vecdat, method = "ML")
+## different
+anova(mVector, mVectorInt)
+
+
+mVectorInt <- rma.mv(yi, vi2,
+                      mods = ~ Vector * Global.Change.Driver,
+                      random = list(~1|Citation.number, ~1|ind_id), data=vecdat)
+
+##Set up emmeans reference grid
+mVectorg <- qdrg(object = mVectorInt, data = vecdat)
+
+mVectorgem <- emmeans(mVectorg, ~ Vector|Global.Change.Driver)
+
+#
+pairs((mVectorgem))
+
+
+```
+
+```{r Vector figure, echo = FALSE}
+
+datfig_Vector <- data.frame(mVectorgem)
+
+#make the plot
+ggplot(datfig_Vector, aes(x = Global.Change.Driver, 
+                 y=emmean,
+                 shape = Vector,
+                 color = Global.Change.Driver)) +            #subtract 2 to adjust range of response
+  geom_point(position = position_dodge(width = 0.2),
+             size = 2.5) +                               #plot points
+  geom_errorbar(aes(ymin = asymp.LCL,        #include error bars
+                    ymax = asymp.UCL),     
+                width=0.25,
+                position = position_dodge(width = 0.2)) +                   #adjust width of bar
+  geom_hline(yintercept = 0,                   #make a reference line at 0
+             linetype = "dashed", 
+             color = "black", 
+             size = 1) +
+  xlab("Global Change Driver") +               #relabel X and Y axes
+  ylab("Hedge's G") +
+    scale_color_manual(values = c("#FFCA3A",
+                                "#EC0B43",
+                                "#63ADF2"),
+                     name = "Global Change Driver",
+                     guide = "none")+
+  coord_flip()+
+  theme_JR()
+
+
+ggsave("GCDFigSVector.tiff",
+       dpi = 300,
+       width = 6.5,
+       height = 4.65,
+       units = "in")
+```
+
+### Vector-borne
+No generalizable differences between vector-borne and non-vector-borne diseases, but within biodiversity change, there are differences. In biodiversity change, vector-borne diseases respond significantly stronger (positive) to biodiversity change than non-vector-borne diseases. This is consistent with previous work from Dave Civitello, suggesting that dilution effect is more prominent in vector-borne diseases.
+
+```{r Vector-borne}
+##Number of replicates
+nrow(vecbordat)
+
+mVectorBorne <- rma.mv(yi, vi2,
+                  mods = ~ Vector.borne + Global.Change.Driver,
+                  random = list(~1|Citation.number, ~1|ind_id),
+                  data=vecbordat, method = "ML")
+mVectorBorneIntML <- rma.mv(yi, vi2,
+                  mods = ~ Vector.borne * Global.Change.Driver,
+                  random = list(~1|Citation.number, ~1|ind_id),
+                  data=vecbordat, method = "ML")
+
+anova(mVectorBorne, mVectorBorneIntML)
+
+
+mVectorBorneInt <- rma.mv(yi, vi2,
+                      mods = ~ Vector.borne * Global.Change.Driver,
+                      random = list(~1|Citation.number, ~1|ind_id), data=vecbordat)
+
+##Set up emmeans reference grid
+mVectorBg <- qdrg(object = mVectorBorneInt, data = vecbordat)
+
+mVectorBgem <- emmeans(mVectorBg, ~ Vector.borne|Global.Change.Driver)
+
+#Only difference is in BC
+pairs((mVectorBgem))
+
+```
+
+```{r Vectorborne Figure, echo = FALSE}
+datfig_VectB <- data.frame(mVectorBgem)
+datfig_VectB$Global.Change.Driver <- as.factor(datfig_VectB$Global.Change.Driver)
+
+datfig_VectB$Global.Change.Driver = factor(datfig_VectB$Global.Change.Driver,
+                                          levels(datfig_VectB$Global.Change.Driver)[c(1,3,2,4,5)])
+
+#make the plot
+ggplot(datfig_VectB, aes(x = Global.Change.Driver, 
+                 y=emmean,
+                 shape = Vector.borne,
+                 color = Global.Change.Driver)) +            #subtract 2 to adjust range of response
+  geom_point(position = position_dodge(width = 0.2),
+             size = 2.5) +                               #plot points
+  geom_errorbar(aes(ymin = asymp.LCL,        #include error bars
+                    ymax = asymp.UCL),     
+                width=0.25,
+                position = position_dodge(width = 0.2)) +                   #adjust width of bar
+  # scale_y_continuous(limits = c(0,1.05),      #change limits of Y axis
+  #                    breaks = c(0,0.5,1))+      #set Y axis breaks 
+  geom_hline(yintercept = 0,                   #make a reference line at 0
+             linetype = "dashed", 
+             color = "black", 
+             size = 1) +
+  scale_color_manual(values = c("#5E976E",
+                                "#58355E",
+                                "#FFCA3A",
+                                "#EC0B43",
+                                "#63ADF2"),
+                     name = "Global Change Driver",
+                     guide = "none")+
+  scale_shape_manual(values = c(16,17),
+                     name = "Vector-borne")+
+  xlab("Global Change Driver") +               #relabel X and Y axes
+  ylab("Hedge's G") +
+  coord_flip()+
+  theme_JR()     
+
+ggsave("GCDFigSVB.tiff",
+       dpi = 300,
+       width = 6.5,
+       height = 4.61,
+       units = "in")
+
+```
+
+### Ecto- v. Endoparasites
+No differences between ecto- and edo- parasites in response to biodiversity change, chemical pollution, and climate change. For Introduced Species, ecto-parasites respond  positively, while endo-parasites do not change. Conversely, for habitat loss, ecto-parasites respond negatively, while endo-parasites do not change.
+
+```{r Ectoparasites}
+##Number of replicates
+nrow(ectodat)
+
+mEctoparasite <- rma.mv(yi, vi2,
+                  mods = ~ Ectoparasite + Global.Change.Driver,
+                  random = list(~1|Citation.number, ~1|ind_id),
+                  data=ectodat, method = "ML")
+mEctoparasiteIntML <- rma.mv(yi, vi2,
+                  mods = ~ Ectoparasite * Global.Change.Driver,
+                  random = list(~1|Citation.number, ~1|ind_id),
+                  data=ectodat, method = "ML")
+
+anova(mEctoparasite, mEctoparasiteIntML)
+
+mEctoparasiteInt <- rma.mv(yi, vi2,
+                      mods = ~ Ectoparasite * Global.Change.Driver,
+                      random = list(~1|Citation.number, ~1|ind_id), data=ectodat)
+
+##Set up emmeans reference grid
+mEctoparasiteBg <- qdrg(object = mEctoparasiteInt, data = ectodat)
+
+mEctoparasiteBgem <- emmeans(mEctoparasiteBg, ~ Ectoparasite|Global.Change.Driver)
+
+#Only difference is in IS
+pairs((mEctoparasiteBgem))
+
+```
+
+```{r Ectoparasite Figure, echo  = FALSE}
+
+datfig_Ecto <- data.frame(mEctoparasiteBgem)
+datfig_Ecto$Global.Change.Driver = as.factor(datfig_Ecto$Global.Change.Driver)
+
+datfig_Ecto$Global.Change.Driver = factor(datfig_Ecto$Global.Change.Driver,
+                                          levels(datfig_Ecto$Global.Change.Driver)[c(1,3,2,4,5)])
+
+#make the plot
+ggplot(datfig_Ecto, aes(x = Global.Change.Driver, 
+                 y=emmean,
+                 shape = Ectoparasite,
+                 color = Global.Change.Driver)) +            #subtract 2 to adjust range of response
+  geom_point(position = position_dodge(width = 0.2),
+             size = 2.5) +                               #plot points
+  geom_errorbar(aes(ymin = asymp.LCL,        #include error bars
+                    ymax = asymp.UCL),     
+                width=0.25,
+                position = position_dodge(width = 0.2)) +                   #adjust width of bar
+  # scale_y_continuous(limits = c(0,1.05),      #change limits of Y axis
+  #                    breaks = c(0,0.5,1))+      #set Y axis breaks 
+  geom_hline(yintercept = 0,                   #make a reference line at 0
+             linetype = "dashed", 
+             color = "black", 
+             size = 1) +
+  scale_color_manual(values = c("#5E976E",
+                                "#58355E",
+                                "#FFCA3A",
+                                "#EC0B43",
+                                "#63ADF2"),
+                     name = "Global Change Driver",
+                     guide = "none")+
+  scale_shape_manual(values = c(16,17),
+                     name = "Ectoparasite")+
+  xlab("Global Change Driver") +               #relabel X and Y axes
+  ylab("Hedge's G") +
+  coord_flip()+
+  theme_JR()     
+
+ggsave("GCDFigS7.tiff",
+       dpi = 300,
+       width = 6.5,
+       height = 4.61,
+       units = "in")
+
+
+```
+
+### Human v. Non-human Parasites
+There are no differences in human v. non-human parasites in their response to global change drivers. Overall, probably a good thing, but not too exciting.
+```{r Human Parasites}
+###### Human Parasites
+##Number of replicates
+nrow(humdat)
+
+mHuman <- rma.mv(yi, vi2,
+                  mods = ~ Human.ParasiteBoth.NA + Global.Change.Driver,
+                  random = list(~1|Citation.number, ~1|ind_id),
+                  data=humdat, method = "ML")
+mHumanInt <- rma.mv(yi, vi2,
+                  mods = ~ Human.ParasiteBoth.NA * Global.Change.Driver,
+                  random = list(~1|Citation.number, ~1|ind_id),
+                  data=humdat, method = "ML")
+
+#Not significant
+anova(mHuman, mHumanInt)
+
+anova(mHuman, btt = 2)
+
+mHuman <- rma.mv(yi, vi2,
+                  mods = ~ Human.ParasiteBoth.NA + Global.Change.Driver,
+                  random = list(~1|Citation.number, ~1|ind_id),
+                  data=humdat, method = "REML")
+mHumang <- qdrg(object = mHuman, data = humdat)
+
+```
+
+### Venue
+Lab studies tend to overestimate the effect of changes in biodiversity on disease. For all other GCDs tested (introduced species, climate change, and chemical pollution), lab studies were no different from field studies of these drivers on disease.
+
+```{r Venue}
+##Number of replicates
+nrow(vendat)
+
+mVenue <- rma.mv(yi, vi2,
+                  mods = ~ VenueNoModel + Global.Change.Driver,
+                  random = list(~1|Citation.number, ~1|ind_id),
+                  data=vendat, method = "ML")
+mVenueIntML <- rma.mv(yi, vi2,
+                  mods = ~ VenueNoModel * Global.Change.Driver,
+                  random = list(~1|Citation.number, ~1|ind_id),
+                  data=vendat, method = "ML")
+
+#Very diff
+anova(mVenue, mVenueIntML)
+
+mVenueInt <- rma.mv(yi, vi2,
+                      mods = ~ VenueNoModel * Global.Change.Driver,
+                      random = list(~1|Citation.number, ~1|ind_id), data=vendat)
+
+##Set up emmeans reference grid
+mVenueg <- qdrg(object = mVenueInt, data = vendat)
+
+mVenuegem <- emmeans(mVenueg, ~ VenueNoModel|Global.Change.Driver)
+
+#Only difference is in BC
+pairs((mVenuegem))
+
+```
+
+
+```{r Venue Figure, echo = FALSE}
+datfig_Venue  <- data.frame(mVenuegem)
+datfig_Venue$Global.Change.Driver = as.factor(datfig_Venue$Global.Change.Driver)
+
+datfig_Venue$Global.Change.Driver = factor(datfig_Venue$Global.Change.Driver,
+                                          levels(datfig_Venue$Global.Change.Driver)[c(1,3,2,4)])
+
+#make the plot
+ggplot(datfig_Venue, aes(x = Global.Change.Driver, 
+                        y=emmean,
+                        shape = VenueNoModel,
+                        color = Global.Change.Driver)) +            #subtract 2 to adjust range of response
+  geom_point(position = position_dodge(width = 0.2),
+             size = 2.5) +                               #plot points
+  geom_errorbar(aes(ymin = asymp.LCL,        #include error bars
+                    ymax = asymp.UCL),     
+                width=0.25,
+                position = position_dodge(width = 0.2)) +                   #adjust width of bar
+  # scale_y_continuous(limits = c(0,1.05),      #change limits of Y axis
+  #                    breaks = c(0,0.5,1))+      #set Y axis breaks 
+  geom_hline(yintercept = 0,                   #make a reference line at 0
+             linetype = "dashed", 
+             color = "black", 
+             size = 1) +
+  scale_color_manual(values = c("#5E976E",
+                                "#58355E",
+                                "#FFCA3A",
+                                "#63ADF2"),
+                     guide = "none")+
+  scale_shape_manual(values = c(16,17),
+                     name = "Venue")+
+  xlab("Global Change Driver") +               #relabel X and Y axes
+  ylab("Hedge's G") +
+  coord_flip()+
+  theme_JR()
+
+ggsave("GCDFigS10.tiff",
+       dpi = 300,
+       width = 6.5,
+       height = 4.65,
+       units = "in")
+
+```
+
+### Habitat
+There is a difference in how different habitats respond to biodiversity change. Specifically, effects of biodiversity change on disease is expected to be strongest in marine systems, followed by freshwater, with terrestrial systems responding relatively weakly.
+
+```{r Habitat}
+##Number of replicates
+nrow(habdat)
+
+mHabitat <- rma.mv(yi, vi2,
+                  mods = ~ Habitat + Global.Change.Driver,
+                  random = list(~1|Citation.number, ~1|ind_id),
+                  data=habdat, method = "ML")
+mHabitatIntML <- rma.mv(yi, vi2,
+                  mods = ~ Habitat * Global.Change.Driver,
+                  random = list(~1|Citation.number, ~1|ind_id),
+                  data=habdat, method = "ML")
+
+#No diff
+anova(mHabitat, mHabitatIntML)
+
+mHabitatInt <- rma.mv(yi, vi2,
+                      mods = ~ Habitat * Global.Change.Driver,
+                      random = list(~1|Citation.number, ~1|ind_id), data=habdat)
+
+##Set up emmeans reference grid
+mHabitatg <- qdrg(object = mHabitatInt, data = habdat)
+
+mHabitatgem <- emmeans(mHabitatg, ~ Habitat | Global.Change.Driver)
+
+#Only difference is in BC
+pairs((mHabitatgem))
+```
+
+```{r, echo = FALSE}
+
+figdat_Hab <- data.frame(mHabitatgem)
+figdat_Hab$Global.Change.Driver = as.factor(figdat_Hab$Global.Change.Driver)
+
+figdat_Hab$Global.Change.Driver = factor(figdat_Hab$Global.Change.Driver,
+                                          levels(figdat_Hab$Global.Change.Driver)[c(1,3,2,4,5)])
+
+ggplot(figdat_Hab, aes(x = Global.Change.Driver, 
+                        y=emmean,
+                        shape = Habitat,
+                        color = Global.Change.Driver)) +            #subtract 2 to adjust range of response
+  geom_point(position = position_dodge(width = 0.2),
+             size = 2.5) +                               #plot points
+  geom_errorbar(aes(ymin = asymp.LCL,        #include error bars
+                    ymax = asymp.UCL),     
+                width=0.25,
+                position = position_dodge(width = 0.2)) +                   #adjust width of bar
+  # scale_y_continuous(limits = c(0,1.05),      #change limits of Y axis
+  #                    breaks = c(0,0.5,1))+      #set Y axis breaks 
+  geom_hline(yintercept = 0,                   #make a reference line at 0
+             linetype = "dashed", 
+             color = "black", 
+             size = 1) +
+  scale_color_manual(values = c("#5E976E",
+                                "#58355E",
+                                "#FFCA3A",
+                                "#EC0B43",
+                                "#63ADF2"),
+                     guide = "none")+
+  scale_shape_manual(values = c(16,17,18),
+                     name = "Habitat")+
+  xlab("Global Change Driver") +               #relabel X and Y axes
+  ylab("Hedge's G") +
+  coord_flip()+
+  theme_JR()
+
+ggsave("GCDFigS11.tiff",
+       dpi = 300,
+       width = 6.5,
+       height = 4.65,
+       units = "in")
+```
+
+### Route
+Route (complex or direct) was significantly different for biodiversity change and habitat loss/change. Very similar patterns to the vector-borne status results, so likely very similar drivers there.
+
+```{r Route}
+##Number of replicates
+nrow(datRoute)
+
+mRoute <- rma.mv(yi, vi2,
+                  mods = ~ RouteBoth.NA + Global.Change.Driver,
+                  random = list(~1|Citation.number, ~1|ind_id),
+                  data=datRoute, method = "ML")
+mRouteIntML <- rma.mv(yi, vi2,
+                  mods = ~ RouteBoth.NA * Global.Change.Driver,
+                  random = list(~1|Citation.number, ~1|ind_id),
+                  data=datRoute, method = "ML")
+
+#Difference
+anova(mRoute, mRouteIntML)
+
+
+mRouteInt <- rma.mv(yi, vi2,
+                      mods = ~ RouteBoth.NA * Global.Change.Driver,
+                      random = list(~1|Citation.number, ~1|ind_id), data=datRoute)
+
+##Set up emmeans reference grid
+mRouteIntg <- qdrg(object = mRouteInt, data = datRoute)
+
+mRouteIntgem <- emmeans(mRouteIntg, ~ RouteBoth.NA | Global.Change.Driver)
+
+#Differences in BC and HLC
+pairs((mRouteIntgem))
+
+```
+
+```{r Route Figure, echo = FALSE}
+
+datfig_Route  <- data.frame(mRouteIntgem)
+datfig_Route$Global.Change.Driver = as.factor(datfig_Route$Global.Change.Driver)
+
+datfig_Route$Global.Change.Driver = factor(datfig_Route$Global.Change.Driver,
+                                          levels(datfig_Route$Global.Change.Driver)[c(1,3,2,4,5)])
+
+#make the plot
+ggplot(datfig_Route, aes(x = Global.Change.Driver, 
+                        y=emmean,
+                        shape = RouteBoth.NA,
+                        color = Global.Change.Driver)) +            #subtract 2 to adjust range of response
+  geom_point(position = position_dodge(width = 0.2),
+             size = 2.5) +                               #plot points
+  geom_errorbar(aes(ymin = asymp.LCL,        #include error bars
+                    ymax = asymp.UCL),     
+                width=0.25,
+                position = position_dodge(width = 0.2)) +                   #adjust width of bar
+  # scale_y_continuous(limits = c(0,1.05),      #change limits of Y axis
+  #                    breaks = c(0,0.5,1))+      #set Y axis breaks 
+  geom_hline(yintercept = 0,                   #make a reference line at 0
+             linetype = "dashed", 
+             color = "black", 
+             size = 1) +
+  scale_color_manual(values = c("#5E976E",
+                                "#58355E",
+                                "#FFCA3A",
+                                "#EC0B43",
+                                "#63ADF2"),
+                     guide = "none")+
+  scale_shape_manual(values = c(16,17),
+                     name = "Route")+
+  xlab("Global Change Driver") +               #relabel X and Y axes
+  ylab("Hedge's G") +
+  coord_flip()+
+  theme_JR()
+
+ggsave("GCDFigSROUTE.tiff",
+       dpi = 300,
+       width = 6.5,
+       height = 4.65,
+       units = "in")
+
+```
+
+### Free Living Stages
+There was no difference among different types of free living stages in their response to global change drivers.
+
+```{r Free Living Stages}
+##Number of replicates
+nrow(datFLstage)
+
+mStage <- rma.mv(yi, vi2,
+                  mods = ~ Free.living.stages + Global.Change.Driver,
+                  random = list(~1|Citation.number, ~1|ind_id),
+                  data=datFLstage, method = "ML")
+mStageIntML <- rma.mv(yi, vi2,
+                  mods = ~ Free.living.stages * Global.Change.Driver,
+                  random = list(~1|Citation.number, ~1|ind_id),
+                  data=datFLstage, method = "ML")
+
+#No Difference
+anova(mStage, mStageIntML)
+
+anova(mStage, btt = 2)
+##No difference between free-living and non-free living parasites
+
+mStage <- rma.mv(yi, vi2,
+                  mods = ~ Free.living.stages + Global.Change.Driver,
+                  random = list(~1|Citation.number, ~1|ind_id),
+                  data=datFLstage, method = "REML")
+mStageg <- qdrg(object = mStage, data = datFLstage)
+
+
+
+```
+
+
+### Macroparasites
+Parasite size was different for biodiversity change (macroparasites responded more positively to biodiversity loss) and for Habitat Loss/Change (macroparasites responded more negatively to habitat loss/change).
+
+```{r Macroparasites}
+##Number of replicates
+nrow(datMacroparasite)
+
+mMacro <- rma.mv(yi, vi2,
+                  mods = ~ Macroparasite + Global.Change.Driver,
+                  random = list(~1|Citation.number, ~1|ind_id),
+                  data=datMacroparasite, method = "ML")
+mMacroIntML <- rma.mv(yi, vi2,
+                  mods = ~ Macroparasite * Global.Change.Driver,
+                  random = list(~1|Citation.number, ~1|ind_id),
+                  data=datMacroparasite, method = "ML")
+
+#Difference
+anova(mMacro, mMacroIntML)
+
+mMacroInt <- rma.mv(yi, vi2,
+                  mods = ~ Macroparasite * Global.Change.Driver,
+                  random = list(~1|Citation.number, ~1|ind_id),
+                  data=datMacroparasite)
+
+##Set up emmeans reference grid
+mMacroIntg <- qdrg(object = mMacroInt, data = datMacroparasite)
+
+mMacroIntgem <- emmeans(mMacroIntg, ~ Macroparasite | Global.Change.Driver)
+
+#Differences in BC (IS p = 0.064)
+pairs((mMacroIntgem))
+
+```
+
+```{r, echo = FALSE}
+datfig_Macro  <- data.frame(mMacroIntgem)
+datfig_Macro$Global.Change.Driver = as.factor(datfig_Macro$Global.Change.Driver)
+
+datfig_Macro$Global.Change.Driver = factor(datfig_Macro$Global.Change.Driver,
+                                          levels(datfig_Macro$Global.Change.Driver)[c(1,3,2,4, 5)])
+
+#make the plot
+ggplot(datfig_Macro, aes(x = Global.Change.Driver, 
+                        y=emmean,
+                        shape = Macroparasite,
+                        color = Global.Change.Driver)) +            #subtract 2 to adjust range of response
+  geom_point(position = position_dodge(width = 0.2),
+             size = 2.5) +                               #plot points
+  geom_errorbar(aes(ymin = asymp.LCL,        #include error bars
+                    ymax = asymp.UCL),     
+                width=0.25,
+                position = position_dodge(width = 0.2)) +                   #adjust width of bar
+  # scale_y_continuous(limits = c(0,1.05),      #change limits of Y axis
+  #                    breaks = c(0,0.5,1))+      #set Y axis breaks 
+  geom_hline(yintercept = 0,                   #make a reference line at 0
+             linetype = "dashed", 
+             color = "black", 
+             size = 1) +
+  scale_color_manual(values = c("#5E976E",
+                                "#58355E",
+                                "#FFCA3A",
+                                "#EC0B43",
+                                "#63ADF2"),
+                     guide = "none")+
+  scale_shape_manual(values = c(16,17),
+                     name = "Macroparasite")+
+  xlab("Global Change Driver") +               #relabel X and Y axes
+  ylab("Hedge's G") +
+  coord_flip()+
+  theme_JR()
+
+ggsave("GCDFigSSize.tiff",
+       dpi = 300,
+       width = 6.5,
+       height = 4.65,
+       units = "in")
+
+```
+
+### Host Thermy
+Interestingly, we see a slight difference in disease response between ecto- and endo- thermic hosts for biodiversity change. For biodiversity change, this suggests that changes in biodiversity will increase disease more in ectothermic hosts than in endothermic hosts.
+
+```{r Thermy}
+##Number of replicates
+nrow(datHostThermy)
+
+mThermy <- rma.mv(yi, vi2,
+                  mods = ~ Ectothermic.host + Global.Change.Driver,
+                  random = list(~1|Citation.number, ~1|ind_id),
+                  data=datHostThermy, method = "ML")
+mThermyIntML <- rma.mv(yi, vi2,
+                  mods = ~ Ectothermic.host * Global.Change.Driver,
+                  random = list(~1|Citation.number, ~1|ind_id),
+                  data=datHostThermy, method = "ML")
+
+#Difference!
+anova(mThermy, mThermyIntML)
+
+mThermyInt <- rma.mv(yi, vi2,
+                  mods = ~ Ectothermic.host * Global.Change.Driver,
+                  random = list(~1|Citation.number, ~1|ind_id),
+                  data=datHostThermy)
+
+##Set up emmeans reference grid
+mThermyIntg <- qdrg(object = mThermyInt, data = datHostThermy)
+
+mThermyIntgem <- emmeans(mThermyIntg, ~ Ectothermic.host | Global.Change.Driver)
+
+#Differences in BC and HLC
+pairs((mThermyIntgem))
+```
+
+```{r Thermy Figure, echo = FALSE}
+datfig_Thermy <- data.frame(mThermyIntgem)
+datfig_Thermy$Global.Change.Driver = as.factor(datfig_Thermy$Global.Change.Driver)
+
+datfig_Thermy$Global.Change.Driver = factor(datfig_Thermy$Global.Change.Driver,
+                                          levels(datfig_Thermy$Global.Change.Driver)[c(1,3,2,4,5)])
+
+#make the plot
+ggplot(datfig_Thermy, aes(x = Global.Change.Driver, 
+                        y=emmean,
+                        shape = Ectothermic.host,
+                        color = Global.Change.Driver)) +            #subtract 2 to adjust range of response
+  geom_point(position = position_dodge(width = 0.2),
+             size = 2.5) +                               #plot points
+  geom_errorbar(aes(ymin = asymp.LCL,        #include error bars
+                    ymax = asymp.UCL),     
+                width=0.25,
+                position = position_dodge(width = 0.2)) +                   #adjust width of bar
+  # scale_y_continuous(limits = c(0,1.05),      #change limits of Y axis
+  #                    breaks = c(0,0.5,1))+      #set Y axis breaks 
+  geom_hline(yintercept = 0,                   #make a reference line at 0
+             linetype = "dashed", 
+             color = "black", 
+             size = 1) +
+  scale_color_manual(values = c("#5E976E",
+                                "#58355E",
+                                "#FFCA3A",
+                                "#EC0B43",
+                                "#63ADF2"),
+                     guide = "none")+
+  scale_shape_manual(values = c(16,17),
+                     name = "Ectothermic Host")+
+  xlab("Global Change Driver") +               #relabel X and Y axes
+  ylab("Hedge's G") +
+  coord_flip()+
+  theme_JR()
+
+ggsave("GCDFigS8.tiff",
+       dpi = 300,
+       width = 6.5,
+       height = 4.65,
+       units = "in")
+
+```
+
+## Step 4: Model Selection:
+### What factors best explain disease response to specific global change drivers?
+* Model selection process for each individual GCD
+* Only using citation here to stay within the bounds of the meta-analysis framework
+
+#### Data prep
+* For each individual global change driver, removed all NA values for predictors.
+*Cchecked for missing cells (i.e. Marine habitats and Habitat Loss).
+* As such, replicates for each GCD are below.
+
+```{r Model selection prep}
+
+dataBL2 = subset(fulldat2, Global.Change.Driver == "BC")
+
+##Remove all rows (probably 3-5) with NA values in ANY of the categories
+dataBL2 = dataBL2 %>%
+  filter(complete.cases(Habitat) &
+           complete.cases(Enemy.type_further_reduced_Final) &
+           complete.cases(Vector.borne) &
+           complete.cases(Free.living.stages) &
+           complete.cases(Effect_Reduced_Update))
+
+##Drop Birds and Fish (2 reps of each)
+dataBL2 = subset(dataBL2, Native.host.type_reduced_Final != "Bird" &
+                   Native.host.type_reduced_Final != "Fish")
+
+##Replicates for biodiversity
+nrow(dataBL2)
+
+##Climate change
+dataCC2 = subset(fulldat2, Global.Change.Driver == "CC")
+
+
+##Remove all rows with NA values in ANY of the categories
+dataCC2 = dataCC2 %>%
+  filter(complete.cases(Habitat) &
+           complete.cases(Enemy.type_further_reduced_Final) &
+           complete.cases(Vector.borne) &
+           complete.cases(Native.host.type_reduced_Final) & 
+           complete.cases(Ectoparasite) &
+           complete.cases(Vector.borne) &
+           complete.cases(Free.living.stages) &
+           complete.cases(RouteBoth.NA) &
+           complete.cases(Human.ParasiteBoth.NA) &
+           complete.cases(MacroparasiteBoth.NA) &
+           complete.cases(Effect_Reduced_Update))
+
+##Replicates for climate change
+nrow(dataCC2)
+
+#Habitat Loss/Change
+dataHLC2 = subset(fulldat2, Global.Change.Driver == "HLC")
+
+##Remove all rows with NA values in ANY of the categories
+dataHLC2 = dataHLC2 %>%
+  filter(complete.cases(Habitat) &
+           complete.cases(Enemy.type_further_reduced_Final) &
+           complete.cases(Vector.borne) &
+           complete.cases(Native.host.type_reduced_Final) & 
+           complete.cases(Ectoparasite) &
+           complete.cases(Vector.borne) &
+           complete.cases(Free.living.stages) &
+           complete.cases(RouteBoth.NA) &
+           complete.cases(Human.ParasiteBoth.NA) &
+           complete.cases(MacroparasiteBoth.NA) &
+           complete.cases(Effect_Reduced_Update))
+
+dataHLC2 = subset(dataHLC2, Native.host.type_reduced_Final != "Mollusk" &
+                    Native.host.type_reduced_Final != "Fish" &
+                    Habitat != "Marine")
+
+##Replicates for habitat loss/change
+nrow(dataHLC2)
+
+##Introduced species
+dataIS2 = subset(fulldat2, Global.Change.Driver == "IS")
+
+##Remove all rows with NA values in ANY of the categories
+dataIS2 = dataIS2 %>%
+  filter(complete.cases(Habitat) &
+           complete.cases(Enemy.type_further_reduced_Final) &
+           complete.cases(Vector.borne) &
+           complete.cases(Native.host.type_reduced_Final) & 
+           complete.cases(Ectoparasite) &
+           complete.cases(Vector.borne) &
+           complete.cases(Free.living.stages) &
+           complete.cases(RouteBoth.NA) &
+           complete.cases(Human.ParasiteBoth.NA) &
+           complete.cases(MacroparasiteBoth.NA) &
+           complete.cases(Effect_Reduced_Update))
+
+dataIS2 = subset(dataIS2, 
+                   Enemy.type_further_reduced_Final != "Bacteria")
+
+##Replicates for introduced species
+nrow(dataIS2)
+
+##Chemical pollution
+dataCP2 = subset(fulldat2, Global.Change.Driver == "CP")
+
+##Remove all rows with NA values in ANY of the categories
+dataCP2 = dataCP2 %>%
+  filter(complete.cases(Habitat) &
+           complete.cases(Enemy.type_further_reduced_Final) &
+           complete.cases(Vector.borne) &
+           complete.cases(Native.host.type_reduced_Final) & 
+           complete.cases(Ectoparasite) &
+           complete.cases(Vector.borne) &
+           complete.cases(Free.living.stages) &
+           complete.cases(RouteBoth.NA) &
+           complete.cases(Human.ParasiteBoth.NA) &
+           complete.cases(MacroparasiteBoth.NA) &
+           complete.cases(Effect_Reduced_Update))
+
+##Replicates for chemical pollution
+nrow(dataCP2)
+```
+
+#### Data Analysis
+* Model selection output is for $\Delta$ AIC < 2.
+* Best models are AICc indicated best models, not including parsimony in best model.
+
+```{r}
+
+##rma() wrapper for dredge
+makeArgs.rma <- function(obj, termNames, comb, opt, 
+                         ...) {
+  ret <- MuMIn:::makeArgs.default(obj, termNames, comb, opt)
+  names(ret)[1L] <- "mods"
+  ret
+}
+
+##rma() wrapper for dredge
+coefTable.rma <- function(model, ...) {
+  MuMIn:::.makeCoefTable(model$b, model$se, coefNames = rownames(model$b))
+}
+
+
+```
+
+
+### Biodiversity Change
+
+```{r Biodiversity Change, echo = FALSE,  warning = FALSE}
+##Do this once
+options(na.action = "na.fail")
+
+BioDiv_Whole <- rma.mv(yi, vi2,
+                       mods = ~ Effect_Reduced_Update +
+                         Endpoint_Host_Parasite +
+                         Native.host.type_reduced_Final +
+                         Enemy.type_further_reduced_Final +
+                         Ectoparasite + Vector.borne + Free.living.stages +
+                         RouteBoth.NA + Human.ParasiteBoth.NA +
+                         MacroparasiteBoth.NA +
+                         VenueNoModel + Habitat + Ectothermic.host,
+                       random = list(~1|Citation.number, ~1|ind_id),
+                       data = dataBL2, method = "ML")
+
+BioDiv_Dredge = dredge(BioDiv_Whole)
+
+
+summary(model.avg(BioDiv_Dredge, delta < 2))
+importance(subset(BioDiv_Dredge, delta < 4))
+#3/4/6/9/10/12
+##Best Model: 
+Biodiv_Best <- rma.mv(yi, vi2,
+                       mods = ~ Effect_Reduced_Update +
+                         Endpoint_Host_Parasite +
+                         Habitat +
+                         Native.host.type_reduced_Final +
+                         RouteBoth.NA,
+                       random = list(~1|Citation.number, ~1|ind_id),
+                       data = dataBL2)
+Biodiv_Bestg <- qdrg(object = Biodiv_Best, data = dataBL2)
+
+emmeans(Biodiv_Bestg, ~Native.host.type_reduced_Final)
+emmeans(Biodiv_Bestg, ~Endpoint_Host_Parasite)
+emmeans(Biodiv_Bestg, ~Effect_Reduced_Update)
+emmeans(Biodiv_Bestg, ~Habitat)
+
+
+```
+
+### Climate Change
+Cannot have "Enemy.type_further_reduced_Final" and "MacroparasiteBoth.NA" in the model; not uniquely determined. So, dropped "macroparasite".
+
+```{r Climate Change, echo = FALSE,  warning = FALSE}
+ClimChange_Whole <- rma.mv(yi, vi2,
+                       mods = ~ Effect_Reduced_Update + Endpoint_Host_Parasite +
+                       Native.host.type_reduced_Final + Enemy.type_further_reduced_Final +
+                       Ectoparasite + Vector.borne + Free.living.stages +
+                       RouteBoth.NA + Human.ParasiteBoth.NA + 
+                       VenueNoModel + Habitat + Ectothermic.host,
+                       random = list(~1|Citation.number, ~1|ind_id),
+                       data = dataCC2, method = "ML")
+
+ClimChange_Dredge = dredge(ClimChange_Whole)
+
+
+summary(model.avg(ClimChange_Dredge, delta < 2))
+importance(subset(ClimChange_Dredge, delta < 4))
+
+##Best Model: 
+ClimChange_Best <- rma.mv(yi, vi2,
+                          mods = ~ Effect_Reduced_Update,
+                       random = list(~1|Citation.number, ~1|ind_id),
+                       data = dataCC2)
+summary(ClimChange_Best)
+
+
+```
+
+### Habitat Loss and Change
+
+
+```{r Habitat Loss/Change, echo = FALSE,  warning = FALSE}
+HabLoss_Whole <- rma.mv(yi, vi2,
+                       mods = ~ Effect_Reduced_Update +
+                        Endpoint_Host_Parasite+
+                        Native.host.type_reduced_Final +
+                        Enemy.type_further_reduced_Final +
+                        Vector.borne +
+                        Free.living.stages +
+                        RouteBoth.NA + Human.ParasiteBoth.NA +
+                        MacroparasiteBoth.NA +
+                        Habitat +
+                        Ectothermic.host,
+                       random = list(~1|Citation.number, ~1|ind_id),
+                       data = dataHLC2, method = "ML")
+  
+  
+HabLoss_Dredge = dredge(HabLoss_Whole)
+
+
+summary(model.avg(HabLoss_Dredge, delta < 2))
+importance(subset(HabLoss_Dredge, delta < 4))
+#3 8 10 11
+##Best Model: 
+HabLoss_Best <- rma.mv(yi, vi2,
+                       mods = ~ 
+                        Endpoint_Host_Parasite+
+                        Vector.borne +
+                        RouteBoth.NA +
+                        MacroparasiteBoth.NA,
+                       random = list(~1|Citation.number, ~1|ind_id),
+                       data = dataHLC2)
+
+HabLoss_Bestg <- qdrg(object = HabLoss_Best, data = dataHLC2)
+
+pairs(emmeans(HabLoss_Bestg, ~Vector.borne))
+pairs(emmeans(HabLoss_Bestg, ~Endpoint_Host_Parasite))
+pairs(emmeans(HabLoss_Bestg, ~RouteBoth.NA))
+pairs(emmeans(HabLoss_Bestg, ~MacroparasiteBoth.NA))
+
+```
+
+### Introduced Species
+
+```{r Introduced Species, echo = FALSE,  warning = FALSE}
+
+IntroSpec_Whole <- rma.mv(yi, vi2,
+                       mods = ~ Effect_Reduced_Update +
+                          Endpoint_Host_Parasite +
+                          Native.host.type_reduced_Final +
+                          Enemy.type_further_reduced_Final +
+                          Ectoparasite +
+                          Vector.borne +
+                          Free.living.stages +
+                          RouteBoth.NA +
+                          Human.ParasiteBoth.NA +
+                          Habitat +
+                          Ectothermic.host,
+                       random = list(~1|Citation.number, ~1|ind_id),
+                       data = dataIS2, method = "ML")
+  
+IntroSpec_Dredge = dredge(IntroSpec_Whole)
+
+
+summary(model.avg(IntroSpec_Dredge, delta < 2))
+importance(subset(IntroSpec_Dredge, delta < 4))
+#4 6 7 8
+
+IntroSpec_Best <- rma.mv(yi, vi2,
+                       mods = ~ 
+                          Endpoint_Host_Parasite +
+                          Free.living.stages  +
+                         Habitat +
+                          Human.ParasiteBoth.NA,
+                       random = list(~1|Citation.number, ~1|ind_id),
+                       data = dataIS2)
+
+IntroSpec_Bestg <- qdrg(object = IntroSpec_Best, data = dataIS2)
+
+pairs(emmeans(IntroSpec_Bestg, ~Endpoint_Host_Parasite))
+pairs(emmeans(IntroSpec_Bestg, ~Free.living.stages))
+pairs(emmeans(IntroSpec_Bestg, ~Habitat))
+pairs(emmeans(IntroSpec_Bestg, ~Human.ParasiteBoth.NA))
+
+```
+
+### Chemical Pollution
+
+```{r Chemical Pollution, echo = FALSE, warning = FALSE}
+ChemPoll_Whole <- rma.mv(yi, vi2,
+                       mods = ~ Effect_Reduced_Update + Endpoint_Host_Parasite +
+                          Native.host.type_reduced_Final + Enemy.type_further_reduced_Final +
+                          Ectoparasite + Vector.borne + Free.living.stages +
+                          RouteBoth.NA + Human.ParasiteBoth.NA + MacroparasiteBoth.NA +
+                          Habitat + Ectothermic.host,
+                       random = list(~1|Citation.number, ~1|ind_id),
+                       data = dataCP2, method = "ML")
+
+ChemPoll_Dredge = dredge(ChemPoll_Whole)
+
+summary(model.avg(ChemPoll_Dredge, delta < 2))
+importance(subset(ChemPoll_Dredge, delta < 4))
+
+ChemPoll_Best <- rma.mv(yi, vi2,
+                       mods = ~ 
+                          Ectoparasite,
+                       random = list(~1|Citation.number, ~1|ind_id),
+                       data = dataCP2)
+summary(ChemPoll_Best)
+
+```
+
+```{r single Importplot, echo = FALSE, warning = FALSE}
+#BRING ALL OF THE IMPORTANCE SCORE FIGURES TOGETHER IN 1
+
+
+biodivimport = data.frame(
+  Variable = attr(importance(subset(BioDiv_Dredge, delta < 4)), "names"),
+  Importance = c(importance(subset(BioDiv_Dredge, delta < 4))),
+  Nmodel = attr(importance(subset(BioDiv_Dredge, delta < 4)), "n.models")
+                )
+
+# biodivimport$Variable = c("Endpoint",
+#                        "Host Type",
+#                        "GCD Subfactor",
+#                        "Host Thermy",
+#                        "Venue",
+#                        "Free Living Stages",
+#                        "Transmission Route",
+#                        "Parasite Size",
+#                        "Vector-borne Status",
+#                        "Human Parasite Status",
+#                        "Parasite type",
+#                        "Habitat"
+#                        )
+biodivimport$Variable = forcats::fct_reorder(biodivimport$Variable, biodivimport$Importance, .desc = FALSE)
+levels(biodivimport$Variable) = rev(as.character(forcats::fct_reorder(biodivimport$Variable, biodivimport$Importance, .desc = FALSE)))
+
+importplot_bd = ggplot(biodivimport, aes(x = Variable, y = Importance))+
+  geom_segment( aes(x=Variable, xend=Variable, y=0, yend=Importance)) +
+  geom_point( size=5, color="black", shape = 21, fill = "black") +
+  scale_y_continuous(expand = c(0,0),
+                     limits = c(0, 1.05))+
+  # annotate("text", x=1.6, y=0.85, label=bdlb1, parse=TRUE)+
+  # annotate("text", x=1, y=0.85, label=bdlb2, parse=TRUE)+
+  ylab("Importance Score")+
+  coord_flip()+
+  theme_JR()+
+  theme(axis.title.y = element_blank(),
+        # panel.grid.major.x = element_line(color = "light grey"),
+        axis.text.y = element_text(size = 12))
+
+
+climchangeimport = data.frame(
+  Variable = attr(importance(subset(ClimChange_Dredge, delta < 4)), "names"),
+  Importance = c(importance(subset(ClimChange_Dredge, delta < 4))),
+  Nmodel = attr(importance(subset(ClimChange_Dredge, delta < 4)), "n.models")
+                )
+
+# climchangeimport$Variable = c("Parasite Type",
+#                           "Venue",
+#                           "Vector-borne Status",
+#                           "Free Living Stages",
+#                           "Endpoint",
+#                           "Human Parasite Status",
+#                           "Transmission Route",
+#                           "Host Thermy",
+#                           "Habitat",
+#                           "Parasite Taxa"
+# )
+
+climchangeimport$Variable = forcats::fct_reorder(climchangeimport$Variable, climchangeimport$Importance, .desc = FALSE)
+levels(climchangeimport$Variable) = rev(as.character(forcats::fct_reorder(climchangeimport$Variable, climchangeimport$Importance, .desc = FALSE)))
+
+importplot_cc = ggplot(climchangeimport, aes(x = Variable, y = Importance))+
+  geom_segment( aes(x=Variable, xend=Variable, y=0, yend=Importance)) +
+  geom_point( size=5, color="black", shape = 21, fill = "black") +
+  scale_y_continuous(expand = c(0,0),
+                     limits = c(0, 1.05))+
+  # annotate("text", x=1.6, y=0.85, label=cclb1, parse=TRUE)+
+  # annotate("text", x=1, y=0.85, label=cclb2, parse=TRUE)+
+  ylab("Importance Score")+
+  coord_flip()+
+  theme_JR()+
+  theme(axis.title.y = element_blank(),
+        # panel.grid.major.x = element_line(color = "light grey"),
+        axis.text.y = element_text(size = 12))
+
+hablossimport = data.frame(
+  Variable = attr(importance(subset(HabLoss_Dredge, delta < 4)), "names"),
+  Importance = c(importance(subset(HabLoss_Dredge, delta < 4))),
+  Nmodel = attr(importance(subset(HabLoss_Dredge, delta < 4)), "n.models")
+                )
+
+# hablossimport$Variable = c("Endpoint",
+#                            "GCD Subfactor",
+#                            "Parasite Taxa",
+#                            "Habitat",
+#                            "Human Parasite Status",
+#                            "Host Thermy",
+#                            "Transmission Route",
+#                            "Free Living Stages",
+#                            "Vector-borne Status",
+#                            "Parasite Size",
+#                            "Host Type"
+#                        )
+
+hablossimport$Variable = forcats::fct_reorder(hablossimport$Variable, hablossimport$Importance, .desc = FALSE)
+levels(hablossimport$Variable) = rev(as.character(forcats::fct_reorder(hablossimport$Variable, hablossimport$Importance, .desc = FALSE)))
+
+importplot_hl = ggplot(hablossimport, aes(x = Variable, y = Importance))+
+  geom_segment( aes(x=Variable, xend=Variable, y=0, yend=Importance)) +
+  geom_point( size=5, color="black", shape = 21, fill = "black") +
+  scale_y_continuous(expand = c(0,0),
+                     limits = c(0, 1.05))+
+  ylab("Importance Score")+
+  coord_flip()+
+  theme_JR()+
+  theme(axis.title.y = element_blank(),
+        # panel.grid.major.x = element_line(color = "light grey"),
+        axis.text.y = element_text(size = 12))
+
+inspimport = data.frame(
+  Variable = attr(importance(subset(IntroSpec_Dredge, delta < 4)), "names"),
+  Importance = c(importance(subset(IntroSpec_Dredge, delta < 4))),
+  Nmodel = attr(importance(subset(IntroSpec_Dredge, delta < 4)), "n.models")
+                )
+
+# inspimport$Variable = c("Host Thermy",
+#                         "Vector-borne Status",
+#                         "Human Parasite Status",
+#                         "Transmission Route",
+#                         "Free Living Stages",
+#                         "Parasite Type",
+#                         "Endpoint",
+#                         "Habitat",
+#                         "GCD Subfactor"
+# )
+inspimport$Variable = forcats::fct_reorder(inspimport$Variable, inspimport$Importance, .desc = FALSE)
+levels(inspimport$Variable) = rev(as.character(forcats::fct_reorder(inspimport$Variable, inspimport$Importance, .desc = FALSE)))
+
+importplot_is = ggplot(inspimport, aes(x = Variable, y = Importance))+
+  geom_segment( aes(x=Variable, xend=Variable, y=0, yend=Importance)) +
+  geom_point( size=5, color="black", shape = 21, fill = "black") +
+  scale_y_continuous(expand = c(0,0),
+                     limits = c(0, 1.05))+
+  ylab("Importance Score")+
+  coord_flip()+
+  theme_JR()+
+  theme(axis.title.y = element_blank(),
+        # panel.grid.major.x = element_line(color = "light grey"),
+        axis.text.y = element_text(size = 12))
+
+chempollimport = data.frame(
+  Variable = attr(importance(subset(ChemPoll_Dredge, delta < 4)), "names"),
+  Importance = c(importance(subset(ChemPoll_Dredge, delta < 4))),
+  Nmodel = attr(importance(subset(ChemPoll_Dredge, delta < 4)), "n.models")
+                )
+
+# chempollimport$Variable = c("GCD Subfactor",
+#                             "Habitat",
+#                             "Human Parasite Status",
+#                             "Host Thermy",
+#                             "Free Living Stages",
+#                             "Parasite Type",
+#                             "Endpoint",
+#                             "Vector-borne Status",
+#                             "Parasite Size",
+#                             "Transmission Route"
+# )
+
+chempollimport$Variable = forcats::fct_reorder(chempollimport$Variable, chempollimport$Importance, .desc = FALSE)
+levels(chempollimport$Variable) = rev(as.character(forcats::fct_reorder(chempollimport$Variable, chempollimport$Importance, .desc = FALSE)))
+
+importplot_cp = ggplot(chempollimport, aes(x = Variable, y = Importance))+
+  geom_segment( aes(x=Variable, xend=Variable, y=0, yend=Importance)) +
+  geom_point( size=5, color="black", shape = 21, fill = "black") +
+  scale_y_continuous(expand = c(0,0),
+                     limits = c(0, 1.05))+
+  ylab("Importance Score")+
+  coord_flip()+
+  theme_JR()+
+  theme(axis.title.y = element_blank(),
+        # panel.grid.major.x = element_line(color = "light grey"),
+        axis.text.y = element_text(size = 12))
+
+import_whole = cowplot::align_plots(importplot_bd, importplot_cp,
+                                    importplot_cc, importplot_hl,
+                                    importplot_is,
+                                    align = 'hv', axis = 'l')
+
+cowplot::plot_grid(import_whole[[1]], import_whole[[2]], import_whole[[3]],
+                                  import_whole[[4]], import_whole[[5]],
+                                  labels = c("A)","B)","C)","D)","E)"),
+                                  ncol = 2,
+                                  label_x = 0.2,
+                                  label_y = 0.975)
+
+
+
+```

@@ -1,0 +1,125 @@
+Round1 <- read.csv("C:/Users/mmahon/OneDrive - Environmental Protection Agency (EPA)/Profile/Documents/Research/Clean1_full_datU.csv")
+
+non_coefdat22 <- Round1 %>%
+  filter(Coef_Type == "") %>%
+  filter(Error_Type != "")
+
+non_coefdat22 <- non_coefdat22 %>%
+  mutate(SDTreatment = ifelse(is.na(SDTreatment),
+                              VarianceTreatment,
+                              SDTreatment),
+         SDControl = ifelse(is.na(SDControl),
+                              VarianceControl,
+                            SDControl))
+
+
+d22 <- escalc(measure = "ROM",
+       m1i = MeanTreatment, sd1i = SDTreatment, n1i = SampleSizeTreatment,
+       m2i = MeanControl, sd2i = SDControl, n2i = SampleSizeControl,
+       data = non_coefdat22)
+
+non_coefdat2$LRRyi = d2$yi
+non_coefdat2$LRRvi = d2$vi
+
+d3 <- escalc(measure = "SMDH",
+             m1i = MeanTreatment, sd1i = SDTreatment, n1i = SampleSizeTreatment,
+             m2i = MeanControl, sd2i = SDControl, n2i = SampleSizeControl,
+             data = non_coefdat2)
+
+non_coefdat2$SMDHyi = d3$yi
+non_coefdat2$SMDHvi = d3$vi
+
+ggplot(non_coefdat2, aes(x = yi, y = LRRyi, color = Global.Change.Driver))+
+  geom_point()
+
+
+ggplot(non_coefdat2, aes(x = LRRyi, color = Global.Change.Driver))+
+  geom_histogram()
+
+
+non_coefdat2 <- non_coefdat2 %>%
+  mutate(diffdir = LRRyi * yi) %>%
+  mutate(LRRyi = ifelse(diffdir < 0, 
+                        -LRRyi,
+                        LRRyi),
+         SMDHyi = ifelse(diffdir < 0, 
+                        -SMDHyi,
+                        SMDHyi))
+
+
+d2 <- escalc(measure = "ROM",
+             m1i = MeanTreatment, sd1i = SDTreatment, n1i = SampleSizeTreatment,
+             m2i = MeanControl, sd2i = SDControl, n2i = SampleSizeControl,
+             data = non_coefdat)
+
+non_coefdat$LRRyi = d2$yi
+non_coefdat$LRRvi = d2$vi
+
+d3 <- escalc(measure = "SMDH",
+             m1i = MeanTreatment, sd1i = SDTreatment, n1i = SampleSizeTreatment,
+             m2i = MeanControl, sd2i = SDControl, n2i = SampleSizeControl,
+             data = non_coefdat)
+
+non_coefdat$SMDHyi = d3$yi
+non_coefdat$SMDHvi = d3$vi
+
+colnames(non_coefdat2)
+
+comb_LRRdat <- bind_rows(non_coefdat2 %>%
+            dplyr::select(Citation, Global.Change.Driver, LRRyi:SMDHvi),
+          non_coefdat %>%
+            dplyr::select(Citation, Global.Change.Driver, LRRyi:SMDHvi))
+
+comb_LRRdat <- comb_LRRdat %>%
+mutate(ind_id = as.character(1:nrow(comb_LRRdat))) %>%
+  mutate(Citation.number = paste("CN",as.character(as.integer(factor(Citation))),sep = "_"))
+
+ggplot(comb_LRRdat, aes(x = LRRvi, y = SMDHvi, color = Global.Change.Driver))+
+  geom_point()+
+  coord_cartesian(xlim = c(0,5))
+
+
+ggplot(comb_LRRdat, aes(x = LRRvi, color = Global.Change.Driver))+
+  geom_histogram(binwidth = 0.05)+
+  coord_cartesian(xlim = c(0,5))
+
+range(comb_LRRdat$LRRvi, na.rm = T)
+
+mgrandLRR <- rma.mv(LRRyi, LRRvi, 
+                 mods = ~ Global.Change.Driver - 1,
+                 random = list(~1|Citation.number, ~1|ind_id),
+                 data = comb_LRRdat,
+                 control=list(optimizer="optimParallel", ncpus=15))
+
+summary(mgrandLRR)
+View(comb_LRRdat[comb_LRRdat$LRRvi==0,])
+
+
+##cluter-robust estimate of the variance-covariatnce matric of model coefficients
+# Satterthwaite approximations for degrees of freedom,
+# var-cov estimator is CR2
+m1LRR <- robust(mgrandLRR, cluster=Citation.number, clubSandwich=TRUE)
+m1LRR
+
+mgrandSMDH <- rma.mv(SMDHyi, SMDHvi, 
+                    mods = ~ Global.Change.Driver - 1,
+                    random = list(~1|Citation.number, ~1|ind_id),
+                    data = comb_LRRdat,
+                    control=list(optimizer="optimParallel", ncpus=15))
+
+summary(mgrandSMDH)
+
+##cluter-robust estimate of the variance-covariatnce matric of model coefficients
+# Satterthwaite approximations for degrees of freedom,
+# var-cov estimator is CR2
+m1SMDH <- robust(mgrandSMDH, cluster=Citation.number, clubSandwich=TRUE)
+m1SMDH
+
+
+
+
+
+
+
+
+

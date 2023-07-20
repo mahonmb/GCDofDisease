@@ -1,0 +1,16 @@
+a <- Sys.time()
+ChemPoll_Whole <- rma.mv(SMDH_yi, SMDH_vi2,
+                         mods = ~ Effect +
+                           Endpoint_Host_Parasite +
+                           Native.host.type +
+                           Enemy.type +
+                           Ectoparasite + Vector.borne + Free.living.stages +
+                           Route + Human.Parasite +
+                           Macroparasite + Zoonotic +
+                           Venue + Habitat + Ectothermic.host,
+                         random = list(~1|Citation.number, ~1|ind_id),
+                         data = dataCP2, method = "ML")
+b <- Sys.time()
+
+b-a
+

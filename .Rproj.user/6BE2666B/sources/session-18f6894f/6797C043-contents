@@ -1,0 +1,5 @@
+length(unique((fulldat2 %>%
+  filter(Global.Change.Driver == "BC"))$Citation.number))
+
+392
+

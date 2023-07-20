@@ -1,0 +1,6 @@
+fulldat2 %>%
+  filter(!is.na(ContinentUse)) %>%
+  group_by(ContinentUse, Global.Change.Driver) %>%
+  summarize(count = n(),
+            studies = length(unique(Citation.number))) %>%
+  print(n = 50)

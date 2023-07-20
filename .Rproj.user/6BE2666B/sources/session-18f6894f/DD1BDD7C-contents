@@ -1,0 +1,506 @@
+### R code for the analyses described in 
+### Massol, F., Macke, E., Callens, M., & Decaestecker, E. A methodological framework to analyse determinants of host-microbiota networks, with an application to the relationships between Daphnia magna’s gut microbiota and bacterioplankton
+### code last checked on June 23rd 2020 using R 3.6.3
+
+###########################################
+##1. load libraries
+###########################################
+library(dummies)
+library(vegan)
+library(alluvial)
+library(adespatial)
+library(verification)
+library(SDMTools)
+library(igraph)
+
+###########################################
+##2. define functions and global variables
+###########################################
+
+NPERM=100#set quite low, so that permutations do not take too long, only for proof of principle, set to 10000 for serious comparisons
+ls.col=c("white","black")
+ls.degrad=c("white","yellow","orange","red")
+ls.twogroups=c("white","darkgreen","white","darkslateblue")
+source('functions.R')
+
+###########################################
+##3. load data
+###########################################
+netData<-read.table("Sample_Otu_RA_Exp1.txt",header=T,sep="\t")#raw data
+net<-netData[,6:1661]
+index<-which(net>0)
+rownames(net)<-netData[["Sample"]]
+
+netBin<-matrix(0,nrow=dim(net)[1],ncol=dim(net)[2])#building the incidence matrix
+netBin[index]<-1
+netBin.data<-as.data.frame(netBin)
+colnames(netBin.data)<-colnames(net)
+rownames(netBin.data)<-rownames(net)
+badcol<-which(apply(netBin.data,2,sum)==0)#removing OTUs associated to no population
+netBin.data<-netBin.data[,-badcol]
+netBin<-netBin[,-badcol]
+graph.bin<-graph_from_incidence_matrix(as.matrix(netBin.data),multiple=F)#defining the network
+
+netBin.gut<-netBin.data[which(netData[["Type"]]=="Gut"),]#submatrix comprising only gut microbiota samples
+badcol.gut<-which(apply(netBin.gut,2,sum)==0)
+netBin.gut<-netBin.gut[,-badcol.gut]
+graph.bin.gut<-graph_from_incidence_matrix(as.matrix(netBin.gut),multiple=F)#defining the network
+
+netBin.bpk<-netBin.data[which(netData[["Type"]]=="BPK"),]#submatrix comprising only BPK samples
+badcol.bpk<-which(apply(netBin.bpk,2,sum)==0)
+netBin.bpk<-netBin.bpk[,-badcol.bpk]
+graph.bin.bpk<-graph_from_incidence_matrix(as.matrix(netBin.bpk),multiple=F)#defining the network
+
+gut.id<-netData[which(netData[["Type"]]=="Gut"),c("Genotype","Diet","Replicate")]#constructing good id markers to pair observations
+gut.id$ID<-paste0(gut.id[["Genotype"]],gut.id[["Diet"]],gut.id[["Replicate"]])
+bpk.id<-netData[which(netData[["Type"]]=="BPK"),c("Genotype","Diet","Replicate")]
+bpk.id$ID<-paste0(bpk.id[["Genotype"]],bpk.id[["Diet"]],bpk.id[["Replicate"]])
+
+match.in.gut <- match(intersect(bpk.id$ID, gut.id$ID), gut.id$ID)#pairing observations
+match.in.bpk <- match(intersect(bpk.id$ID, gut.id$ID), bpk.id$ID)
+
+###########################################
+##4. simulate configuration models (i.e. randomizing edges)
+###########################################
+netBin.config<-simulate(nullmodel(netBin.data,"curveball"),nsim=NPERM)
+graph.bin.gut.config<-simulate(nullmodel(netBin.gut,"curveball"),nsim=NPERM)
+graph.bin.bpk.config<-simulate(nullmodel(netBin.bpk,"curveball"),nsim=NPERM)
+
+###########################################
+##5. find communities and compare them with other classifications
+###########################################
+
+###for the whole network
+########################
+cle<-cluster_leading_eigen(graph.bin)#communities
+netData$mod.cle<-as.factor(cle$mem[1:104])
+mod.config<-sapply(1:NPERM,function(x) cluster_leading_eigen(graph_from_incidence_matrix(as.matrix(netBin.config[,,x])))$mod)#modularity scores of simulated datasets
+1-ecdf(mod.config)(cle$mod) #p-value of the test of modularity
+
+####graphical representation
+cle.gpsize.daphnia<-sapply(1:nlevels(as.factor(cle$mem)),function(x) length(which(cle$mem[1:104]==x)))
+cle.gpsize.bacteria<-sapply(1:nlevels(as.factor(cle$mem)),function(x) length(which(cle$mem[105:length(cle$mem)]==x)))
+func.plot.matrix.byGroup(as.matrix(graph.bin[order(cle$mem)[which(order(cle$mem)<105)],order(cle$mem)[which(order(cle$mem)>104)]]),group=(netData[,"Type"])[order(cle$mem)[which(order(cle$mem)<105)]],ls.twogroups,"Daphnia-bacteria network",no.ylab=T)
+abline(h=104+0.5-cumsum(cle.gpsize.daphnia))
+abline(v=0.5+cumsum(cle.gpsize.bacteria))
+
+####comparisons with treatments
+cle.config<-sapply(1:NPERM, function(x) cluster_leading_eigen(graph_from_incidence_matrix(as.matrix(netBin.config[,,x])))$mem[1:104])#memberships in communities for simulated datasets
+compare(netData$mod.cle,netData$Type,method="nmi")#NMI of comparison with Type
+wholenetmod.type.nmi.config<-sapply(1:NPERM, function(x) compare(cle.config[,x],netData$Type,method="nmi"))
+1-ecdf(wholenetmod.type.nmi.config)(compare(netData$mod.cle,netData$Type,method="nmi"))#p-value of comparison with Type
+compare(netData$mod.cle,netData$Diet,method="nmi")#NMI of comparison with Diet
+wholenetmod.diet.nmi.config<-sapply(1:NPERM, function(x) compare(cle.config[,x],netData$Diet,method="nmi"))
+1-ecdf(wholenetmod.diet.nmi.config)(compare(netData$mod.cle,netData$Diet,method="nmi"))#p-value of comparison with Diet
+compare(netData$mod.cle,netData$Genotype,method="nmi")#NMI of comparison with Genotype
+wholenetmod.genotype.nmi.config<-sapply(1:NPERM, function(x) compare(cle.config[,x],netData$Genotype,method="nmi"))
+1-ecdf(wholenetmod.genotype.nmi.config)(compare(netData$mod.cle,netData$Genotype,method="nmi"))#p-value of comparison with Genotype
+
+####alluvial plots (HT: Sarah Ouadah & Sophie Donnet @ AgroParisTech)
+A <- as.data.frame(table(netData$mod.cle,netData$Type))
+colnames(A) = c("Communities","Type","Freq")
+w   <- which(A$Freq != 0)
+A <- A[w,]
+alluvial(A[,c(1,2)],freq = A$Freq)
+B <- as.data.frame(table(netData$Diet,netData$mod.cle,netData$Genotype))
+colnames(B) = c("Diet","Communities","Genotype","Freq")
+w   <- which(B$Freq != 0)
+B <- B[w,]
+alluvial(B[,c(1,2,3)],freq = B$Freq)
+
+###for the gut microbiota network
+########################
+cle.gut<-cluster_leading_eigen(graph.bin.gut)
+dummy.cle.gut<-rep(0,104)
+dummy.cle.gut[which(netData[["Type"]]=="Gut")]<-cle.gut$mem[1:52]
+dummy.cle.gut<-as.factor(dummy.cle.gut)
+netData$mod.cle.gut<-dummy.cle.gut
+mod.gut.config<-sapply(1:NPERM,function(x) cluster_leading_eigen(graph_from_incidence_matrix(as.matrix(graph.bin.gut.config[,,x])),options=list("nev"=4,"maxiter"=3000,"ncv"=15))$mod)
+1-ecdf(mod.gut.config)(cle.gut$mod) #p-value of the test of modularity
+netBin.gut$mod.cle<-as.factor(cle.gut$mem[1:52])
+
+####graphical representation
+cle.gut.gpsize.daphnia<-sapply(1:nlevels(as.factor(cle.gut$mem)),function(x) length(which(cle.gut$mem[1:52]==x)))
+cle.gut.gpsize.bacteria<-sapply(1:nlevels(as.factor(cle.gut$mem)),function(x) length(which(cle.gut$mem[53:length(cle.gut$mem)]==x)))
+func.plot.matrix(as.matrix(graph.bin.gut[order(cle.gut$mem)[which(order(cle.gut$mem)<53)],order(cle.gut$mem)[which(order(cle.gut$mem)>52)]]),ls.col,"Daphnia-gut bacteria network",(gut.id$ID)[order(cle.gut$mem)[which(order(cle.gut$mem)<53)]])
+abline(h=52+0.5-cumsum(cle.gut.gpsize.daphnia))
+abline(v=0.5+cumsum(cle.gut.gpsize.bacteria))
+
+####comparisons with treatments
+cle.gut.config<-sapply(1:NPERM, function(x) cluster_leading_eigen(graph_from_incidence_matrix(as.matrix(graph.bin.gut.config[,,x])),options=list("nev"=4,"maxiter"=3000,"ncv"=15))$mem[1:52])#memberships in communities for simulated datasets
+
+compare(netBin.gut$mod.cle,netData[which(netData[["Type"]]=="Gut"),"Diet"],method="nmi")#NMI
+diet.gut.nmi.config<-sapply(1:NPERM, function(x) compare(netData[which(netData[["Type"]]=="Gut"),"Diet"],cle.gut.config[,x],method="nmi"))
+1-ecdf(diet.gut.nmi.config)(compare(netBin.gut$mod.cle,netData[which(netData[["Type"]]=="Gut"),"Diet"],method="nmi"))#p-value
+
+compare(netBin.gut$mod.cle,netData[which(netData[["Type"]]=="Gut"),"Genotype"],method="nmi")#NMI
+genotype.gut.nmi.config<-sapply(1:NPERM, function(x) compare(netData[which(netData[["Type"]]=="Gut"),"Genotype"],cle.gut.config[,x],method="nmi"))
+1-ecdf(genotype.gut.nmi.config)(compare(netBin.gut$mod.cle,netData[which(netData[["Type"]]=="Gut"),"Genotype"],method="nmi"))#p-value
+
+#### alluvial plot
+B <- as.data.frame(table(netData[which(netData[["Type"]]=="Gut"),"Diet"],netBin.gut$mod.cle,netData[which(netData[["Type"]]=="Gut"),"Genotype"]))
+colnames(B) = c("Diet","Gut Communities","Genotype","Freq")
+w   <- which(B$Freq != 0)
+B <- B[w,]
+alluvial(B[,c(1,2,3)],freq = B$Freq)
+
+
+###for the BPK network
+########################
+cle.bpk<-cluster_leading_eigen(graph.bin.bpk)
+dummy.cle.bpk<-rep(0,104)
+dummy.cle.bpk[which(netData[["Type"]]=="BPK")]<-cle.bpk$mem[1:52]
+dummy.cle.bpk<-as.factor(dummy.cle.bpk)
+netData$mod.cle.bpk<-dummy.cle.bpk
+mod.bpk.config<-sapply(1:NPERM,function(x) cluster_leading_eigen(graph_from_incidence_matrix(as.matrix(graph.bin.bpk.config[,,x])),options=list("nev"=4,"maxiter"=3000,"ncv"=15))$mod)
+1-ecdf(mod.bpk.config)(cle.bpk$mod) #p-value of the test of modularity
+netBin.bpk$mod.cle<-as.factor(cle.bpk$mem[1:52])
+
+####graphical representation
+cle.bpk.gpsize.daphnia<-sapply(1:nlevels(as.factor(cle.bpk$mem)),function(x) length(which(cle.bpk$mem[1:52]==x)))
+cle.bpk.gpsize.bacteria<-sapply(1:nlevels(as.factor(cle.bpk$mem)),function(x) length(which(cle.bpk$mem[53:length(cle.bpk$mem)]==x)))
+func.plot.matrix(as.matrix(graph.bin.bpk[order(cle.bpk$mem)[which(order(cle.bpk$mem)<53)],order(cle.bpk$mem)[which(order(cle.bpk$mem)>52)]]),ls.col,"Daphnia-BPK network",(bpk.id$ID)[order(cle.bpk$mem)[which(order(cle.bpk$mem)<53)]])
+abline(h=52+0.5-cumsum(cle.bpk.gpsize.daphnia))
+abline(v=0.5+cumsum(cle.bpk.gpsize.bacteria))
+
+####comparisons with treatments
+cle.bpk.config<-sapply(1:NPERM, function(x) cluster_leading_eigen(graph_from_incidence_matrix(as.matrix(graph.bin.bpk.config[,,x])),options=list("nev"=4,"maxiter"=3000,"ncv"=15))$mem[1:52])#memberships in communities for simulated datasets
+
+compare(netBin.bpk$mod.cle,netData[which(netData[["Type"]]=="BPK"),"Diet"],method="nmi")#NMI
+diet.bpk.nmi.config<-sapply(1:NPERM, function(x) compare(netData[which(netData[["Type"]]=="BPK"),"Diet"],cle.bpk.config[,x],method="nmi"))
+1-ecdf(diet.bpk.nmi.config)(compare(netBin.bpk$mod.cle,netData[which(netData[["Type"]]=="BPK"),"Diet"],method="nmi"))#p-value
+
+compare(netBin.bpk$mod.cle,netData[which(netData[["Type"]]=="BPK"),"Genotype"],method="nmi")#NMI
+genotype.bpk.nmi.config<-sapply(1:NPERM, function(x) compare(netData[which(netData[["Type"]]=="BPK"),"Genotype"],cle.bpk.config[,x],method="nmi"))
+1-ecdf(genotype.bpk.nmi.config)(compare(netBin.bpk$mod.cle,netData[which(netData[["Type"]]=="BPK"),"Genotype"],method="nmi"))#p-value
+
+####alluvial plot
+B <- as.data.frame(table(netData[which(netData[["Type"]]=="BPK"),"Diet"],netBin.bpk$mod.cle,netData[which(netData[["Type"]]=="BPK"),"Genotype"]))
+colnames(B) = c("Diet","BPK Communities","Genotype","Freq")
+w   <- which(B$Freq != 0)
+B <- B[w,]
+alluvial(B[,c(1,2,3)],freq = B$Freq)
+
+
+########################
+###comparison between Gut and BPK
+########################
+compare(netBin.gut[match.in.gut,"mod.cle"],netBin.bpk[match.in.bpk,"mod.cle"],method="nmi")#NMI
+bpk.gut.nmi.config<-sapply(1:NPERM, function(x) compare(cle.bpk.config[match.in.bpk,x],cle.gut.config[match.in.gut,x],method="nmi"))
+1-ecdf(bpk.gut.nmi.config)(compare(netBin.gut[match.in.gut,"mod.cle"],netBin.bpk[match.in.bpk,"mod.cle"],method="nmi"))#p-value
+
+####alluvial plot
+A <- as.data.frame(table(netBin.gut[match.in.gut,"mod.cle"],netBin.bpk[match.in.bpk,"mod.cle"]))
+colnames(A) = c("Gut microbiota network","BPK network","Freq")
+w   <- which(A$Freq != 0)
+A <- A[w,]
+alluvial(A[,c(1,2)],freq = A$Freq)
+
+###########################################
+##6. CCA
+###########################################
+
+###for the whole network
+########################
+dummyMod<-dummy(as.factor(cle$mem[1:104]))
+cca.data<-data.frame("Diet"=as.factor(netData[["Diet"]]),"Type"=as.factor(netData[["Type"]]),"Genotype"=as.factor(netData[["Genotype"]]))
+attach(cca.data)
+wholenetwork.cca.results<-analysis.function.alt(netBin.data,Type,Diet,Genotype,configs=cle.config)
+cca(dummyMod ~ Diet + Genotype + Type, na.action=na.omit)#needed?
+anova(cca(dummyMod ~ Diet + Genotype + Type, na.action=na.omit),permutations = how(nperm=NPERM-1))#needed?
+
+###for the gut microbiota network
+########################
+dummyGutMod<-dummy(as.factor(dummy.cle.gut))
+cca.gutdata<-data.frame("Diet"=as.factor(netData[which(netData[["Type"]]=="Gut"),"Diet"]),"Genotype"=as.factor(netData[which(netData[["Type"]]=="Gut"),"Genotype"]))
+gutnetwork.cca.results<-analysis.function3(netBin.gut[match.in.gut,-769],netBin.bpk[match.in.bpk,"mod.cle"],cca.gutdata[match.in.gut,"Diet"],cca.gutdata[match.in.gut,"Genotype"],cleconfigs=cle.gut.config[match.in.gut,],cleconfigs1=cle.bpk.config[match.in.bpk,])
+
+###for the BPK network
+########################
+dummyBPKMod<-dummy(as.factor(dummy.cle.bpk))
+cca.bpkdata<-data.frame("Diet"=as.factor(netData[which(netData[["Type"]]=="BPK"),"Diet"]),"Genotype"=as.factor(netData[which(netData[["Type"]]=="BPK"),"Genotype"]))
+bpknetwork.cca.results<-analysis.function3(netBin.bpk[match.in.bpk,-1062],netBin.gut[match.in.gut,"mod.cle"],cca.bpkdata[match.in.bpk,"Diet"],cca.bpkdata[match.in.bpk,"Genotype"],cleconfigs=cle.bpk.config[match.in.bpk,],cleconfigs1=cle.gut.config[match.in.gut,])
+
+
+###########################################
+##7. SVD approximation
+###########################################
+
+###for the whole network
+########################
+netBin.svd<-svd(netBin.data)
+netBin.U <- netBin.svd$u
+netBin.S <- diag(netBin.svd$d)
+netBin.Ssqrt <- structure(vapply(netBin.S, sqrt, numeric(1)),dim=dim(netBin.S))
+netBin.traits <- netBin.U %*% netBin.Ssqrt
+netBin.traits2 <- netBin.svd$v %*% netBin.Ssqrt
+
+####choose the right number of vectors/traits
+plot(1:100,sapply(1:100,function(x) compare(netData$mod.cle,cluster_leading_eigen(graph_from_incidence_matrix(as.matrix(approx.from.svd(netBin.data,netBin.traits,netBin.traits2,x)),multiple=F))$mem[1:104],method="nmi")),ylim=c(0,1),type="l",xlab="Number of retained vectors",ylab="NMI")##quite long
+
+subsample.nmicomp<-sapply(1:10,function(x) compare(netData$mod.cle,cluster_leading_eigen(graph_from_incidence_matrix(as.matrix(approx.from.svd(netBin.data,netBin.traits,netBin.traits2,x)),multiple=F))$mem[1:104],method="nmi"))
+which(subsample.nmicomp==max(subsample.nmicomp))#3!!!
+
+###for the gut microbiota network
+########################
+netBin.gut.svd<-svd(netBin.gut[,1:768])
+netBin.gut.U <- netBin.gut.svd$u
+netBin.gut.S <- diag(netBin.gut.svd$d)
+netBin.gut.Ssqrt <- structure(vapply(netBin.gut.S, sqrt, numeric(1)),dim=dim(netBin.gut.S))
+netBin.gut.traits <- netBin.gut.U %*% netBin.gut.Ssqrt
+netBin.gut.traits2 <- netBin.gut.svd$v %*% netBin.gut.Ssqrt
+
+####choose the right number of vectors/traits
+plot(1:50,sapply(1:50,function(x) compare(cle.gut$mem[1:52],cluster_leading_eigen(graph_from_incidence_matrix(as.matrix(approx.from.svd(netBin.gut[,1:768],netBin.gut.traits,netBin.gut.traits2,x)),multiple=F))$mem[1:52],method="nmi")),ylim=c(0,1),type="l",xlab="Number of retained vectors",ylab="NMI")##quite long
+subsample.gut.nmicomp<-sapply(1:15,function(x) compare(cle.gut$mem[1:52],cluster_leading_eigen(graph_from_incidence_matrix(as.matrix(approx.from.svd(netBin.gut[,1:768],netBin.gut.traits,netBin.gut.traits2,x)),multiple=F))$mem[1:52],method="nmi"))
+which(subsample.gut.nmicomp==max(subsample.gut.nmicomp))#10!!!
+
+###for the BPK network
+########################
+netBin.bpk.svd<-svd(netBin.bpk[,1:1061])
+netBin.bpk.U <- netBin.bpk.svd$u
+netBin.bpk.S <- diag(netBin.bpk.svd$d)
+netBin.bpk.Ssqrt <- structure(vapply(netBin.bpk.S, sqrt, numeric(1)),dim=dim(netBin.bpk.S))
+netBin.bpk.traits <- netBin.bpk.U %*% netBin.bpk.Ssqrt
+netBin.bpk.traits2 <- netBin.bpk.svd$v %*% netBin.bpk.Ssqrt
+
+####choose the right number of vectors/traits
+plot(1:50,sapply(1:50,function(x) compare(cle.bpk$mem[1:52],cluster_leading_eigen(graph_from_incidence_matrix(as.matrix(approx.from.svd(netBin.bpk[,1:1061],netBin.bpk.traits,netBin.bpk.traits2,x)),multiple=F))$mem[1:52],method="nmi")),ylim=c(0,1),type="l",xlab="Number of retained vectors",ylab="NMI")##quite long
+subsample.bpk.nmicomp<-sapply(1:15,function(x) compare(cle.bpk$mem[1:52],cluster_leading_eigen(graph_from_incidence_matrix(as.matrix(approx.from.svd(netBin.bpk[,1:1061],netBin.bpk.traits,netBin.bpk.traits2,x)),multiple=F))$mem[1:52],method="nmi"))
+which(subsample.bpk.nmicomp==max(subsample.bpk.nmicomp))#11!!!
+
+###########################################
+##8. RDA
+###########################################
+
+###for the whole network
+########################
+dummyType<-dummy(netData[["Type"]])
+dummyDiet<-dummy(netData[["Diet"]])
+dummyGenotype<-dummy(netData[["Genotype"]])
+
+varp<-varpart(netBin.traits[,1:3], dummyType, dummyDiet, dummyGenotype)
+plot(varp,Xnames=list("Type","Diet","Genotype"))
+varp
+write.table(rbind(varp$part$fract,varp$part$indfract,varp$part$contr1),"wholenet_rda_3.txt",sep="\t",col.names=T)
+
+####tests with randomization of rows
+tests.whole<-c(anova(rda(netBin.traits[,1:3] ~ dummyType,na.action=na.omit),permutations = how(nperm=NPERM-1))$P[1],
+anova(rda(netBin.traits[,1:3] ~ dummyDiet,na.action=na.omit),permutations = how(nperm=NPERM-1))$P[1],
+anova(rda(netBin.traits[,1:3] ~ dummyGenotype,na.action=na.omit),permutations = how(nperm=NPERM-1))$P[1],
+anova(rda(netBin.traits[,1:3] ~ dummyType + dummyDiet,na.action=na.omit),permutations = how(nperm=NPERM-1))$P[1],
+anova(rda(netBin.traits[,1:3] ~ dummyType + dummyGenotype,na.action=na.omit),permutations = how(nperm=NPERM-1))$P[1],
+anova(rda(netBin.traits[,1:3] ~ dummyGenotype + dummyDiet,na.action=na.omit),permutations = how(nperm=NPERM-1))$P[1],
+anova(rda(netBin.traits[,1:3] ~ dummyType + dummyDiet + dummyGenotype,na.action=na.omit),permutations = how(nperm=NPERM-1))$P[1],
+anova(rda(netBin.traits[,1:3] ~ dummyType + Condition(dummyDiet) + Condition(dummyGenotype),na.action=na.omit),permutations = how(nperm=NPERM-1))$P[1],
+anova(rda(netBin.traits[,1:3] ~ dummyDiet + Condition(dummyGenotype) + Condition(dummyType),na.action=na.omit),permutations = how(nperm=NPERM-1))$P[1],
+anova(rda(netBin.traits[,1:3] ~ dummyGenotype + Condition(dummyType) + Condition(dummyDiet),na.action=na.omit),permutations = how(nperm=NPERM-1))$P[1],
+anova(rda(netBin.traits[,1:3] ~ dummyType + Condition(dummyGenotype),na.action=na.omit),permutations = how(nperm=NPERM-1))$P[1],
+anova(rda(netBin.traits[,1:3] ~ dummyType + Condition(dummyDiet),na.action=na.omit),permutations = how(nperm=NPERM-1))$P[1],
+anova(rda(netBin.traits[,1:3] ~ dummyDiet + Condition(dummyGenotype),na.action=na.omit),permutations = how(nperm=NPERM-1))$P[1],
+anova(rda(netBin.traits[,1:3] ~ dummyDiet + Condition(dummyType),na.action=na.omit),permutations = how(nperm=NPERM-1))$P[1],
+anova(rda(netBin.traits[,1:3] ~ dummyGenotype + Condition(dummyType),na.action=na.omit),permutations = how(nperm=NPERM-1))$P[1],
+anova(rda(netBin.traits[,1:3] ~ dummyGenotype + Condition(dummyDiet),na.action=na.omit),permutations = how(nperm=NPERM-1))$P[1])
+write.table(tests.whole,"wholenet_rdatests_3.txt",sep="\t",col.names=F)
+
+####tests with randomization of edges
+varp.config<-sapply(1:NPERM,function(x) analysis.function.rdpg(netBin.config[,,x],dummyType,dummyDiet,dummyGenotype,3))
+varp.config.ecdf<-apply(varp.config,1,ecdf)
+varp.Rsq<-analysis.function.rdpg(netBin.data,dummyType,dummyDiet,dummyGenotype,3)
+tests2.whole<-sapply(1:21,function(x) 1-((varp.config.ecdf[[x]])(varp.Rsq[x])))#all 21 p-values (some are not needed)
+write.table(tests2.whole,"wholenet_rdatests2_3.txt",sep="\t",col.names=F)
+
+####same thing with 100 vectors in the explained matrix
+varp100<-varpart(netBin.traits[,1:100], dummyType, dummyDiet, dummyGenotype)
+plot(varp100,Xnames=list("Type","Diet","Genotype"))
+varp100
+write.table(rbind(varp100$part$fract,varp100$part$indfract,varp100$part$contr1),"wholenet_rda_100.txt",sep="\t",col.names=T)
+
+####tests with randomization of rows
+tests.whole100<-c(anova(rda(netBin.traits[,1:100] ~ dummyType,na.action=na.omit),permutations = how(nperm=NPERM-1))$P[1],
+anova(rda(netBin.traits[,1:100] ~ dummyDiet,na.action=na.omit),permutations = how(nperm=NPERM-1))$P[1],
+anova(rda(netBin.traits[,1:100] ~ dummyGenotype,na.action=na.omit),permutations = how(nperm=NPERM-1))$P[1],
+anova(rda(netBin.traits[,1:100] ~ dummyType + dummyDiet,na.action=na.omit),permutations = how(nperm=NPERM-1))$P[1],
+anova(rda(netBin.traits[,1:100] ~ dummyType + dummyGenotype,na.action=na.omit),permutations = how(nperm=NPERM-1))$P[1],
+anova(rda(netBin.traits[,1:100] ~ dummyGenotype + dummyDiet,na.action=na.omit),permutations = how(nperm=NPERM-1))$P[1],
+anova(rda(netBin.traits[,1:100] ~ dummyType + dummyDiet + dummyGenotype,na.action=na.omit),permutations = how(nperm=NPERM-1))$P[1],
+anova(rda(netBin.traits[,1:100] ~ dummyType + Condition(dummyDiet) + Condition(dummyGenotype),na.action=na.omit),permutations = how(nperm=NPERM-1))$P[1],
+anova(rda(netBin.traits[,1:100] ~ dummyDiet + Condition(dummyGenotype) + Condition(dummyType),na.action=na.omit),permutations = how(nperm=NPERM-1))$P[1],
+anova(rda(netBin.traits[,1:100] ~ dummyGenotype + Condition(dummyType) + Condition(dummyDiet),na.action=na.omit),permutations = how(nperm=NPERM-1))$P[1],
+anova(rda(netBin.traits[,1:100] ~ dummyType + Condition(dummyGenotype),na.action=na.omit),permutations = how(nperm=NPERM-1))$P[1],
+anova(rda(netBin.traits[,1:100] ~ dummyType + Condition(dummyDiet),na.action=na.omit),permutations = how(nperm=NPERM-1))$P[1],
+anova(rda(netBin.traits[,1:100] ~ dummyDiet + Condition(dummyGenotype),na.action=na.omit),permutations = how(nperm=NPERM-1))$P[1],
+anova(rda(netBin.traits[,1:100] ~ dummyDiet + Condition(dummyType),na.action=na.omit),permutations = how(nperm=NPERM-1))$P[1],
+anova(rda(netBin.traits[,1:100] ~ dummyGenotype + Condition(dummyType),na.action=na.omit),permutations = how(nperm=NPERM-1))$P[1],
+anova(rda(netBin.traits[,1:100] ~ dummyGenotype + Condition(dummyDiet),na.action=na.omit),permutations = how(nperm=NPERM-1))$P[1])
+write.table(tests.whole100,"wholenet_rdatests_100.txt",sep="\t",col.names=F)
+
+####tests with randomization of edges
+varp100.config<-sapply(1:NPERM,function(x) analysis.function.rdpg(netBin.config[,,x],dummyType,dummyDiet,dummyGenotype,100))
+varp100.config.ecdf<-apply(varp100.config,1,ecdf)
+varp100.Rsq<-analysis.function.rdpg(netBin.data,dummyType,dummyDiet,dummyGenotype,100)
+tests2.whole100<-sapply(1:21,function(x) 1-((varp100.config.ecdf[[x]])(varp100.Rsq[x])))#all 21 p-values (some are not needed)
+write.table(tests2.whole100,"wholenet_rdatests2_100.txt",sep="\t",col.names=F)
+
+
+
+###for the gut microbiota network
+########################
+dummyDiet.gut<-dummy(gut.id[["Diet"]])
+dummyGenotype.gut<-dummy(gut.id[["Genotype"]])
+
+####Blanchet et al.'s fwd method for choosing axes within netBin.bpk.traits
+anova(rda(netBin.gut.traits[match.in.gut,1:10], netBin.bpk.traits[match.in.bpk,1:30]),permutations=how(nperm=9999))$Pr[1]#1e-4
+adjR2t.gut<-RsquareAdj(rda(netBin.gut.traits[match.in.gut,1:10], netBin.bpk.traits[match.in.bpk,1:30]))$adj.r.squared
+fwdsel.gut<-forward.sel(netBin.gut.traits[match.in.gut,1:10], netBin.bpk.traits[match.in.bpk,1:30], adjR2thresh = adjR2t.gut, nperm = 9999, alpha = 0.05)
+bpk.col.sel<-fwdsel.gut$order
+
+varp.gut<-varpart(netBin.gut.traits[match.in.gut,1:10],  netBin.bpk.traits[match.in.bpk,bpk.col.sel], dummyDiet.gut[match.in.gut,], dummyGenotype.gut[match.in.gut,])
+plot(varp.gut,Xnames=list("BPK","Diet","Genotype"))
+write.table(rbind(varp.gut$part$fract,varp.gut$part$indfract,varp.gut$part$contr1),"gutnet_rda_10.txt",sep="\t",col.names=T)
+
+####tests with randomization of rows
+tests.gut<-c(anova(rda(netBin.gut.traits[match.in.gut,1:10] ~ netBin.bpk.traits[match.in.bpk,bpk.col.sel],na.action=na.omit),permutations = how(nperm=NPERM-1))$P[1],
+anova(rda(netBin.gut.traits[match.in.gut,1:10] ~ dummyDiet.gut[match.in.gut,],na.action=na.omit),permutations = how(nperm=NPERM-1))$P[1],
+anova(rda(netBin.gut.traits[match.in.gut,1:10] ~ dummyGenotype.gut[match.in.gut,],na.action=na.omit),permutations = how(nperm=NPERM-1))$P[1],
+anova(rda(netBin.gut.traits[match.in.gut,1:10] ~ netBin.bpk.traits[match.in.bpk,bpk.col.sel] + dummyDiet.gut[match.in.gut,],na.action=na.omit),permutations = how(nperm=NPERM-1))$P[1],
+anova(rda(netBin.gut.traits[match.in.gut,1:10] ~ netBin.bpk.traits[match.in.bpk,bpk.col.sel] + dummyGenotype.gut[match.in.gut,],na.action=na.omit),permutations = how(nperm=NPERM-1))$P[1],
+anova(rda(netBin.gut.traits[match.in.gut,1:10] ~ dummyGenotype.gut[match.in.gut,] + dummyDiet.gut[match.in.gut,],na.action=na.omit),permutations = how(nperm=NPERM-1))$P[1],
+anova(rda(netBin.gut.traits[match.in.gut,1:10] ~ netBin.bpk.traits[match.in.bpk,bpk.col.sel] + dummyDiet.gut[match.in.gut,] + dummyGenotype.gut[match.in.gut,],na.action=na.omit),permutations = how(nperm=NPERM-1))$P[1],
+anova(rda(netBin.gut.traits[match.in.gut,1:10] ~ netBin.bpk.traits[match.in.bpk,bpk.col.sel] + Condition(dummyDiet.gut[match.in.gut,]) + Condition(dummyGenotype.gut[match.in.gut,]),na.action=na.omit),permutations = how(nperm=NPERM-1))$P[1],
+anova(rda(netBin.gut.traits[match.in.gut,1:10] ~ dummyDiet.gut[match.in.gut,] + Condition(dummyGenotype.gut[match.in.gut,]) + Condition(netBin.bpk.traits[match.in.bpk,bpk.col.sel]),na.action=na.omit),permutations = how(nperm=NPERM-1))$P[1],
+anova(rda(netBin.gut.traits[match.in.gut,1:10] ~ dummyGenotype.gut[match.in.gut,] + Condition(netBin.bpk.traits[match.in.bpk,bpk.col.sel]) + Condition(dummyDiet.gut[match.in.gut,]),na.action=na.omit),permutations = how(nperm=NPERM-1))$P[1],
+anova(rda(netBin.gut.traits[match.in.gut,1:10] ~ netBin.bpk.traits[match.in.bpk,bpk.col.sel] + Condition(dummyGenotype.gut[match.in.gut,]),na.action=na.omit),permutations = how(nperm=NPERM-1))$P[1],
+anova(rda(netBin.gut.traits[match.in.gut,1:10] ~ netBin.bpk.traits[match.in.bpk,bpk.col.sel] + Condition(dummyDiet.gut[match.in.gut,]),na.action=na.omit),permutations = how(nperm=NPERM-1))$P[1],
+anova(rda(netBin.gut.traits[match.in.gut,1:10] ~ dummyDiet.gut[match.in.gut,] + Condition(dummyGenotype.gut[match.in.gut,]),na.action=na.omit),permutations = how(nperm=NPERM-1))$P[1],
+anova(rda(netBin.gut.traits[match.in.gut,1:10] ~ dummyDiet.gut[match.in.gut,] + Condition(netBin.bpk.traits[match.in.bpk,bpk.col.sel]),na.action=na.omit),permutations = how(nperm=NPERM-1))$P[1],
+anova(rda(netBin.gut.traits[match.in.gut,1:10] ~ dummyGenotype.gut[match.in.gut,] + Condition(netBin.bpk.traits[match.in.bpk,bpk.col.sel]),na.action=na.omit),permutations = how(nperm=NPERM-1))$P[1],
+anova(rda(netBin.gut.traits[match.in.gut,1:10] ~ dummyGenotype.gut[match.in.gut,] + Condition(dummyDiet.gut[match.in.gut,]),na.action=na.omit),permutations = how(nperm=NPERM-1))$P[1])
+write.table(tests.gut,"gutnet_rdatests_10.txt",sep="\t",col.names=F)
+
+####tests with randomization of edges
+varp.gut.config<-sapply(1:NPERM,function(x) analysis.function.rdpg.fromtraits(incidence_to_traits(graph.bin.gut.config[,,x])[match.in.gut,1:10],netBin.bpk.traits[match.in.bpk,bpk.col.sel],dummyDiet.gut[match.in.gut,],dummyGenotype.gut[match.in.gut,],10))
+varp.Rsq<-analysis.function.rdpg.fromtraits(netBin.gut.traits[match.in.gut,1:10],netBin.bpk.traits[match.in.bpk,bpk.col.sel],dummyDiet.gut[match.in.gut,],dummyGenotype.gut[match.in.gut,],10)
+varp.ecdf<-apply(varp.gut.config,1,ecdf)
+tests2.gut<-sapply(1:21,function(x) 1-varp.ecdf[[x]](varp.Rsq[x]))
+write.table(tests2.gut,"gutnet_rdatests2_10.txt",sep="\t",col.names=F)
+
+###same thing with 30 vectors in the explained matrix
+####Blanchet et al.'s fwd method for choosing axes within netBin.bpk.traits
+anova(rda(netBin.gut.traits[match.in.gut,1:30], netBin.bpk.traits[match.in.bpk,1:30]),permutations=how(nperm=9999))$Pr[1]#1e-4
+adjR2t.gut.30<-RsquareAdj(rda(netBin.gut.traits[match.in.gut,1:30], netBin.bpk.traits[match.in.bpk,1:30]))$adj.r.squared
+fwdsel.gut.30<-forward.sel(netBin.gut.traits[match.in.gut,1:30], netBin.bpk.traits[match.in.bpk,1:30], adjR2thresh = adjR2t.gut.30, nperm = 9999, alpha = 0.05)
+bpk.col.sel.30<-fwdsel.gut.30$order
+
+varp.gut.30<-varpart(netBin.gut.traits[match.in.gut,1:30],  netBin.bpk.traits[match.in.bpk,bpk.col.sel.30], dummyDiet.gut[match.in.gut,], dummyGenotype.gut[match.in.gut,])
+plot(varp.gut,Xnames=list("BPK","Diet","Genotype"))
+write.table(rbind(varp.gut.30$part$fract,varp.gut.30$part$indfract,varp.gut.30$part$contr1),"gutnet_rda_30.txt",sep="\t",col.names=T)
+
+####tests with randomization of rows
+tests.gut.30<-c(anova(rda(netBin.gut.traits[match.in.gut,1:30] ~ netBin.bpk.traits[match.in.bpk,bpk.col.sel.30],na.action=na.omit),permutations = how(nperm=NPERM-1))$P[1],
+anova(rda(netBin.gut.traits[match.in.gut,1:30] ~ dummyDiet.gut[match.in.gut,],na.action=na.omit),permutations = how(nperm=NPERM-1))$P[1],
+anova(rda(netBin.gut.traits[match.in.gut,1:30] ~ dummyGenotype.gut[match.in.gut,],na.action=na.omit),permutations = how(nperm=NPERM-1))$P[1],
+anova(rda(netBin.gut.traits[match.in.gut,1:30] ~ netBin.bpk.traits[match.in.bpk,bpk.col.sel.30] + dummyDiet.gut[match.in.gut,],na.action=na.omit),permutations = how(nperm=NPERM-1))$P[1],
+anova(rda(netBin.gut.traits[match.in.gut,1:30] ~ netBin.bpk.traits[match.in.bpk,bpk.col.sel.30] + dummyGenotype.gut[match.in.gut,],na.action=na.omit),permutations = how(nperm=NPERM-1))$P[1],
+anova(rda(netBin.gut.traits[match.in.gut,1:30] ~ dummyGenotype.gut[match.in.gut,] + dummyDiet.gut[match.in.gut,],na.action=na.omit),permutations = how(nperm=NPERM-1))$P[1],
+anova(rda(netBin.gut.traits[match.in.gut,1:30] ~ netBin.bpk.traits[match.in.bpk,bpk.col.sel.30] + dummyDiet.gut[match.in.gut,] + dummyGenotype.gut[match.in.gut,],na.action=na.omit),permutations = how(nperm=NPERM-1))$P[1],
+anova(rda(netBin.gut.traits[match.in.gut,1:30] ~ netBin.bpk.traits[match.in.bpk,bpk.col.sel.30] + Condition(dummyDiet.gut[match.in.gut,]) + Condition(dummyGenotype.gut[match.in.gut,]),na.action=na.omit),permutations = how(nperm=NPERM-1))$P[1],
+anova(rda(netBin.gut.traits[match.in.gut,1:30] ~ dummyDiet.gut[match.in.gut,] + Condition(dummyGenotype.gut[match.in.gut,]) + Condition(netBin.bpk.traits[match.in.bpk,bpk.col.sel.30]),na.action=na.omit),permutations = how(nperm=NPERM-1))$P[1],
+anova(rda(netBin.gut.traits[match.in.gut,1:30] ~ dummyGenotype.gut[match.in.gut,] + Condition(netBin.bpk.traits[match.in.bpk,bpk.col.sel.30]) + Condition(dummyDiet.gut[match.in.gut,]),na.action=na.omit),permutations = how(nperm=NPERM-1))$P[1],
+anova(rda(netBin.gut.traits[match.in.gut,1:30] ~ netBin.bpk.traits[match.in.bpk,bpk.col.sel.30] + Condition(dummyGenotype.gut[match.in.gut,]),na.action=na.omit),permutations = how(nperm=NPERM-1))$P[1],
+anova(rda(netBin.gut.traits[match.in.gut,1:30] ~ netBin.bpk.traits[match.in.bpk,bpk.col.sel.30] + Condition(dummyDiet.gut[match.in.gut,]),na.action=na.omit),permutations = how(nperm=NPERM-1))$P[1],
+anova(rda(netBin.gut.traits[match.in.gut,1:30] ~ dummyDiet.gut[match.in.gut,] + Condition(dummyGenotype.gut[match.in.gut,]),na.action=na.omit),permutations = how(nperm=NPERM-1))$P[1],
+anova(rda(netBin.gut.traits[match.in.gut,1:30] ~ dummyDiet.gut[match.in.gut,] + Condition(netBin.bpk.traits[match.in.bpk,bpk.col.sel.30]),na.action=na.omit),permutations = how(nperm=NPERM-1))$P[1],
+anova(rda(netBin.gut.traits[match.in.gut,1:30] ~ dummyGenotype.gut[match.in.gut,] + Condition(netBin.bpk.traits[match.in.bpk,bpk.col.sel.30]),na.action=na.omit),permutations = how(nperm=NPERM-1))$P[1],
+anova(rda(netBin.gut.traits[match.in.gut,1:30] ~ dummyGenotype.gut[match.in.gut,] + Condition(dummyDiet.gut[match.in.gut,]),na.action=na.omit),permutations = how(nperm=NPERM-1))$P[1])
+write.table(tests.gut.30,"gutnet_rdatests_30.txt",sep="\t",col.names=F)
+
+####tests with randomization of edges
+varp.gut.config.30<-sapply(1:NPERM,function(x) analysis.function.rdpg.fromtraits(incidence_to_traits(graph.bin.gut.config[,,x])[match.in.gut,1:30],netBin.bpk.traits[match.in.bpk,bpk.col.sel.30],dummyDiet.gut[match.in.gut,],dummyGenotype.gut[match.in.gut,],30))
+varp.Rsq.30<-analysis.function.rdpg.fromtraits(netBin.gut.traits[match.in.gut,1:30],netBin.bpk.traits[match.in.bpk,bpk.col.sel.30],dummyDiet.gut[match.in.gut,],dummyGenotype.gut[match.in.gut,],30)
+varp.ecdf.30<-apply(varp.gut.config.30,1,ecdf)
+tests2.gut.30<-sapply(1:21,function(x) 1-varp.ecdf.30[[x]](varp.Rsq.30[x]))
+write.table(tests2.gut.30,"gutnet_rdatests2_30.txt",sep="\t",col.names=F)
+
+
+###for the BPK network
+########################
+dummyDiet.bpk<-dummy(bpk.id[["Diet"]])
+dummyGenotype.bpk<-dummy(bpk.id[["Genotype"]])
+
+####Blanchet et al.'s fwd method for choosing axes within netBin.gut.traits
+anova(rda(netBin.bpk.traits[match.in.bpk,1:11], netBin.gut.traits[match.in.gut,1:30]),permutations=how(nperm=9999))$Pr[1]#1e-4
+adjR2t.bpk<-RsquareAdj(rda(netBin.bpk.traits[match.in.bpk,1:11], netBin.gut.traits[match.in.gut,1:30]))$adj.r.squared
+fwdsel.bpk<-forward.sel(netBin.bpk.traits[match.in.bpk,1:11], netBin.gut.traits[match.in.gut,1:30], adjR2thresh = adjR2t.bpk, nperm = 9999, alpha = 0.05)
+gut.col.sel<-fwdsel.bpk$order
+
+varp.bpk<-varpart(netBin.bpk.traits[match.in.bpk,1:11],  netBin.gut.traits[match.in.gut,gut.col.sel], dummyDiet.bpk[match.in.bpk,], dummyGenotype.bpk[match.in.bpk,])
+plot(varp.bpk,Xnames=list("Gut","Diet","Genotype"))
+write.table(rbind(varp.bpk$part$fract,varp.bpk$part$indfract,varp.bpk$part$contr1),"bpknet_rda_11.txt",sep="\t",col.names=T)
+
+####tests with randomization of rows
+tests.bpk<-c(anova(rda(netBin.bpk.traits[match.in.bpk,1:11] ~ netBin.gut.traits[match.in.gut,gut.col.sel],na.action=na.omit),permutations = how(nperm=NPERM-1))$P[1],
+anova(rda(netBin.bpk.traits[match.in.bpk,1:11] ~ dummyDiet.bpk[match.in.bpk,],na.action=na.omit),permutations = how(nperm=NPERM-1))$P[1],
+anova(rda(netBin.bpk.traits[match.in.bpk,1:11] ~ dummyGenotype.bpk[match.in.bpk,],na.action=na.omit),permutations = how(nperm=NPERM-1))$P[1],
+anova(rda(netBin.bpk.traits[match.in.bpk,1:11] ~ netBin.gut.traits[match.in.gut,gut.col.sel] + dummyDiet.bpk[match.in.bpk,],na.action=na.omit),permutations = how(nperm=NPERM-1))$P[1],
+anova(rda(netBin.bpk.traits[match.in.bpk,1:11] ~ netBin.gut.traits[match.in.gut,gut.col.sel] + dummyGenotype.bpk[match.in.bpk,],na.action=na.omit),permutations = how(nperm=NPERM-1))$P[1],
+anova(rda(netBin.bpk.traits[match.in.bpk,1:11] ~ dummyGenotype.bpk[match.in.bpk,] + dummyDiet.bpk[match.in.bpk,],na.action=na.omit),permutations = how(nperm=NPERM-1))$P[1],
+anova(rda(netBin.bpk.traits[match.in.bpk,1:11] ~ netBin.gut.traits[match.in.gut,gut.col.sel] + dummyDiet.bpk[match.in.bpk,] + dummyGenotype.bpk[match.in.bpk,],na.action=na.omit),permutations = how(nperm=NPERM-1))$P[1],
+anova(rda(netBin.bpk.traits[match.in.bpk,1:11] ~ netBin.gut.traits[match.in.gut,gut.col.sel] + Condition(dummyDiet.bpk[match.in.bpk,]) + Condition(dummyGenotype.bpk[match.in.bpk,]),na.action=na.omit),permutations = how(nperm=NPERM-1))$P[1],
+anova(rda(netBin.bpk.traits[match.in.bpk,1:11] ~ dummyDiet.bpk[match.in.bpk,] + Condition(dummyGenotype.bpk[match.in.bpk,]) + Condition(netBin.gut.traits[match.in.gut,gut.col.sel]),na.action=na.omit),permutations = how(nperm=NPERM-1))$P[1],
+anova(rda(netBin.bpk.traits[match.in.bpk,1:11] ~ dummyGenotype.bpk[match.in.bpk,] + Condition(netBin.gut.traits[match.in.gut,gut.col.sel]) + Condition(dummyDiet.bpk[match.in.bpk,]),na.action=na.omit),permutations = how(nperm=NPERM-1))$P[1],
+anova(rda(netBin.bpk.traits[match.in.bpk,1:11] ~ netBin.gut.traits[match.in.gut,gut.col.sel] + Condition(dummyGenotype.bpk[match.in.bpk,]),na.action=na.omit),permutations = how(nperm=NPERM-1))$P[1],
+anova(rda(netBin.bpk.traits[match.in.bpk,1:11] ~ netBin.gut.traits[match.in.gut,gut.col.sel] + Condition(dummyDiet.bpk[match.in.bpk,]),na.action=na.omit),permutations = how(nperm=NPERM-1))$P[1],
+anova(rda(netBin.bpk.traits[match.in.bpk,1:11] ~ dummyDiet.bpk[match.in.bpk,] + Condition(dummyGenotype.bpk[match.in.bpk,]),na.action=na.omit),permutations = how(nperm=NPERM-1))$P[1],
+anova(rda(netBin.bpk.traits[match.in.bpk,1:11] ~ dummyDiet.bpk[match.in.bpk,] + Condition(netBin.gut.traits[match.in.gut,gut.col.sel]),na.action=na.omit),permutations = how(nperm=NPERM-1))$P[1],
+anova(rda(netBin.bpk.traits[match.in.bpk,1:11] ~ dummyGenotype.bpk[match.in.bpk,] + Condition(netBin.gut.traits[match.in.gut,gut.col.sel]),na.action=na.omit),permutations = how(nperm=NPERM-1))$P[1],
+anova(rda(netBin.bpk.traits[match.in.bpk,1:11] ~ dummyGenotype.bpk[match.in.bpk,] + Condition(dummyDiet.bpk[match.in.bpk,]),na.action=na.omit),permutations = how(nperm=NPERM-1))$P[1])
+write.table(tests.bpk,"bpknet_rdatests_11.txt",sep="\t",col.names=F)
+
+####tests with randomization of edges
+varp.bpk.config<-sapply(1:NPERM,function(x) analysis.function.rdpg.fromtraits(incidence_to_traits(graph.bin.bpk.config[,,x])[match.in.bpk,1:11],netBin.gut.traits[match.in.gut,gut.col.sel],dummyDiet.bpk[match.in.bpk,],dummyGenotype.bpk[match.in.bpk,],11))
+varp.Rsq<-analysis.function.rdpg.fromtraits(netBin.bpk.traits[match.in.bpk,1:11],netBin.gut.traits[match.in.gut,gut.col.sel],dummyDiet.bpk[match.in.bpk,],dummyGenotype.bpk[match.in.bpk,],11)
+varp.Rsq
+varp.ecdf<-apply(varp.bpk.config,1,ecdf)
+tests2.bpk<-sapply(1:21,function(x) 1-varp.ecdf[[x]](varp.Rsq[x]))
+write.table(tests2.bpk,"bpknet_rdatests2_11.txt",sep="\t",col.names=F)
+
+###same thing with 30 vectors in the explained matrix
+####Blanchet et al.'s fwd method for choosing axes within netBin.gut.traits
+anova(rda(netBin.bpk.traits[match.in.bpk,1:30], netBin.gut.traits[match.in.gut,1:30]),permutations=how(nperm=9999))$Pr[1]#1e-4
+adjR2t.bpk.30<-RsquareAdj(rda(netBin.bpk.traits[match.in.bpk,1:30], netBin.gut.traits[match.in.gut,1:30]))$adj.r.squared
+fwdsel.bpk.30<-forward.sel(netBin.bpk.traits[match.in.bpk,1:30], netBin.gut.traits[match.in.gut,1:30], adjR2thresh = adjR2t.bpk.30, nperm = 9999, alpha = 0.05)
+gut.col.sel.30<-fwdsel.bpk.30$order
+
+varp.bpk.30<-varpart(netBin.bpk.traits[match.in.bpk,1:30],  netBin.gut.traits[match.in.gut,gut.col.sel.30], dummyDiet.bpk[match.in.bpk,], dummyGenotype.bpk[match.in.bpk,])
+plot(varp.bpk.30,Xnames=list("Gut","Diet","Genotype"))
+write.table(rbind(varp.bpk.30$part$fract,varp.bpk.30$part$indfract,varp.bpk.30$part$contr1),"bpknet_rda_30.txt",sep="\t",col.names=T)
+
+####tests with randomization of rows
+tests.bpk.30<-c(anova(rda(netBin.bpk.traits[match.in.bpk,1:30] ~ netBin.gut.traits[match.in.gut,gut.col.sel.30],na.action=na.omit),permutations = how(nperm=NPERM-1))$P[1],
+anova(rda(netBin.bpk.traits[match.in.bpk,1:30] ~ dummyDiet.bpk[match.in.bpk,],na.action=na.omit),permutations = how(nperm=NPERM-1))$P[1],
+anova(rda(netBin.bpk.traits[match.in.bpk,1:30] ~ dummyGenotype.bpk[match.in.bpk,],na.action=na.omit),permutations = how(nperm=NPERM-1))$P[1],
+anova(rda(netBin.bpk.traits[match.in.bpk,1:30] ~ netBin.gut.traits[match.in.gut,gut.col.sel.30] + dummyDiet.bpk[match.in.bpk,],na.action=na.omit),permutations = how(nperm=NPERM-1))$P[1],
+anova(rda(netBin.bpk.traits[match.in.bpk,1:30] ~ netBin.gut.traits[match.in.gut,gut.col.sel.30] + dummyGenotype.bpk[match.in.bpk,],na.action=na.omit),permutations = how(nperm=NPERM-1))$P[1],
+anova(rda(netBin.bpk.traits[match.in.bpk,1:30] ~ dummyGenotype.bpk[match.in.bpk,] + dummyDiet.bpk[match.in.bpk,],na.action=na.omit),permutations = how(nperm=NPERM-1))$P[1],
+anova(rda(netBin.bpk.traits[match.in.bpk,1:30] ~ netBin.gut.traits[match.in.gut,gut.col.sel.30] + dummyDiet.bpk[match.in.bpk,] + dummyGenotype.bpk[match.in.bpk,],na.action=na.omit),permutations = how(nperm=NPERM-1))$P[1],
+anova(rda(netBin.bpk.traits[match.in.bpk,1:30] ~ netBin.gut.traits[match.in.gut,gut.col.sel.30] + Condition(dummyDiet.bpk[match.in.bpk,]) + Condition(dummyGenotype.bpk[match.in.bpk,]),na.action=na.omit),permutations = how(nperm=NPERM-1))$P[1],
+anova(rda(netBin.bpk.traits[match.in.bpk,1:30] ~ dummyDiet.bpk[match.in.bpk,] + Condition(dummyGenotype.bpk[match.in.bpk,]) + Condition(netBin.gut.traits[match.in.gut,gut.col.sel.30]),na.action=na.omit),permutations = how(nperm=NPERM-1))$P[1],
+anova(rda(netBin.bpk.traits[match.in.bpk,1:30] ~ dummyGenotype.bpk[match.in.bpk,] + Condition(netBin.gut.traits[match.in.gut,gut.col.sel.30]) + Condition(dummyDiet.bpk[match.in.bpk,]),na.action=na.omit),permutations = how(nperm=NPERM-1))$P[1],
+anova(rda(netBin.bpk.traits[match.in.bpk,1:30] ~ netBin.gut.traits[match.in.gut,gut.col.sel.30] + Condition(dummyGenotype.bpk[match.in.bpk,]),na.action=na.omit),permutations = how(nperm=NPERM-1))$P[1],
+anova(rda(netBin.bpk.traits[match.in.bpk,1:30] ~ netBin.gut.traits[match.in.gut,gut.col.sel.30] + Condition(dummyDiet.bpk[match.in.bpk,]),na.action=na.omit),permutations = how(nperm=NPERM-1))$P[1],
+anova(rda(netBin.bpk.traits[match.in.bpk,1:30] ~ dummyDiet.bpk[match.in.bpk,] + Condition(dummyGenotype.bpk[match.in.bpk,]),na.action=na.omit),permutations = how(nperm=NPERM-1))$P[1],
+anova(rda(netBin.bpk.traits[match.in.bpk,1:30] ~ dummyDiet.bpk[match.in.bpk,] + Condition(netBin.gut.traits[match.in.gut,gut.col.sel.30]),na.action=na.omit),permutations = how(nperm=NPERM-1))$P[1],
+anova(rda(netBin.bpk.traits[match.in.bpk,1:30] ~ dummyGenotype.bpk[match.in.bpk,] + Condition(netBin.gut.traits[match.in.gut,gut.col.sel.30]),na.action=na.omit),permutations = how(nperm=NPERM-1))$P[1],
+anova(rda(netBin.bpk.traits[match.in.bpk,1:30] ~ dummyGenotype.bpk[match.in.bpk,] + Condition(dummyDiet.bpk[match.in.bpk,]),na.action=na.omit),permutations = how(nperm=NPERM-1))$P[1])
+write.table(tests.bpk.30,"bpknet_rdatests_30.txt",sep="\t",col.names=F)
+
+####tests with randomization of edges
+varp.bpk.config.30<-sapply(1:NPERM,function(x) analysis.function.rdpg.fromtraits(incidence_to_traits(graph.bin.bpk.config[,,x])[match.in.bpk,1:30],netBin.gut.traits[match.in.gut,gut.col.sel.30],dummyDiet.bpk[match.in.bpk,],dummyGenotype.bpk[match.in.bpk,],30))
+varp.Rsq.30<-analysis.function.rdpg.fromtraits(netBin.bpk.traits[match.in.bpk,1:30],netBin.gut.traits[match.in.gut,gut.col.sel.30],dummyDiet.bpk[match.in.bpk,],dummyGenotype.bpk[match.in.bpk,],30)
+varp.Rsq.30
+varp.ecdf.30<-apply(varp.bpk.config.30,1,ecdf)
+tests2.bpk.30<-sapply(1:21,function(x) 1-varp.ecdf.30[[x]](varp.Rsq.30[x]))
+write.table(tests2.bpk.30,"bpknet_rdatests2_30.txt",sep="\t",col.names=F)
+
+

@@ -1,0 +1,521 @@
+library(tidyverse)
+library(esc)
+library(effectsize)
+library(metafor)
+library(car)
+
+# fulldat2 <- read.csv("G:/Shared drives/GCD of Disease/Final_dat/Full_Data.csv")
+fulldat <- read.csv("C:/Users/mmahon/OneDrive - Environmental Protection Agency (EPA)/Profile/Documents/Research/Round2_FullData.csv")
+
+
+nrow(fulldat)
+
+fulldat <- fulldat %>%
+  mutate(SampleSizeControl = as.numeric(SampleSizeControl),
+         SampleSizeTreatment = as.numeric(SampleSizeTreatment),
+         MeanTreatment = as.numeric(MeanTreatment),
+         MeanControl = as.numeric(MeanControl),
+         VarianceControl = ifelse(VarianceControl < 0,
+                                  -VarianceControl,
+                                  VarianceControl),
+         SD_Y = as.numeric(SD_Y))
+
+
+
+# Data for which we have control and treatment values
+# Error type must be provided (there are a small handful of studies that
+# need to be reviewed)
+non_coefdat <- fulldat %>%
+  filter(Coef_Type == "" | is.na(Coef_Type)) %>%
+  filter(!is.na(SampleSizeControl)) %>%
+  filter(!is.na(SampleSizeTreatment))
+
+# Those studies that need to be reviewed - EMPTY (Good!)
+dat_needs_review_noerror <- fulldat %>%
+  filter(Coef_Type == "") %>%
+  filter(Error_Type == "")
+
+
+non_coefdat <- non_coefdat %>%
+  mutate(SDControl = ifelse(Error_Type == "95CI",
+                            (VarianceControl*2 / 3.92) * sqrt(SampleSizeControl),
+                            ifelse(Error_Type == "SE",
+                                   VarianceControl * sqrt(SampleSizeControl),
+                                   ifelse(Error_Type == "VAR",
+                                          sqrt(VarianceControl),
+                                          ifelse(Error_Type == "SD",
+                                                 VarianceControl,
+                                                 NA
+                                          )))),
+         SDTreatment = ifelse(Error_Type == "95CI",
+                              (VarianceTreatment*2 / 3.92) * sqrt(SampleSizeTreatment),
+                              ifelse(Error_Type == "SE",
+                                     VarianceTreatment * sqrt(SampleSizeTreatment),
+                                     ifelse(Error_Type == "VAR",
+                                            sqrt(VarianceTreatment),
+                                            ifelse(Error_Type == "SD",
+                                                   VarianceTreatment,
+                                                   NA
+                                            )))),
+         SDControl = ifelse(is.na(SDControl),
+                            0,
+                            SDControl),
+         SDTreatment = ifelse(is.na(SDTreatment),
+                              0,
+                              SDTreatment))
+
+
+
+non_coefdat <- escalc(measure = "SMDH",
+                      m1i = MeanTreatment, sd1i = SDTreatment, n1i = SampleSizeTreatment,
+                      m2i = MeanControl, sd2i = SDControl, n2i = SampleSizeControl,
+                      data = non_coefdat) %>%
+  mutate(Sample_size = SampleSizeTreatment + SampleSizeControl)
+
+
+#####
+# coef conversion
+unique(fulldat$Coef_Type)
+
+
+# f_stat stats - DONE
+fstats <- fulldat %>%
+  filter(Coef_Type == "F statistic")
+
+dat_f <- esc_f(f = as.numeric(fstats$Coefficient),
+               totaln = fstats$SampleSizeTreatment + fstats$SampleSizeControl,
+               es.type = "g")
+
+##direction is fragmentation reduces disease in both cases
+fstats$yi = dat_f$es * c(-1,-1)
+fstats$vi = dat_f$var
+
+fstats <- fstats %>%
+  mutate(Sample_size = SampleSizeTreatment + SampleSizeControl)
+
+
+# t_stat stats - DONE
+tstats <- fulldat %>%
+  filter(Coef_Type == "T-test")
+
+dat_t <- esc_t(t = as.numeric(tstats$Coefficient),
+               totaln = tstats$SampleSizeTreatment + tstats$SampleSizeControl,
+               es.type = "g")
+
+
+##direction is urban reduces disease in both cases
+tstats$yi = dat_t$es * c(-1,-1)
+tstats$vi = dat_t$var
+
+tstats <- tstats %>%
+  mutate(Sample_size = SampleSizeTreatment + SampleSizeControl)
+
+
+
+# correlation stats - DONE
+corrs2 <- fulldat %>%
+  filter(Coef_Type  %in% c("correlation","correlation coef","pearson correlation coefficient",
+                           "correlation coeffcient","Correlation","Simple correlation coefficients")) %>%
+  #2 observations don't have variance (estimate variance by using code below)
+  mutate(CoefficientVariance = as.numeric(CoefficientVariance),
+         
+         Sample_size = (SampleSizeTreatment + ifelse(is.na(SampleSizeControl),
+                                                     0,
+                                                     SampleSizeControl)),
+         Coefficient = as.numeric(Coefficient)) %>%
+  mutate(CoefficientVariance  = ifelse(is.na(CoefficientVariance),
+                                       ((1 - Coefficient^2)^2) / (SampleSizeTreatment - 1),
+                                       ifelse(Error_Type == "SD",
+                                              CoefficientVariance^2,
+                                              (CoefficientVariance * sqrt(SampleSizeTreatment))^2)),
+         yi = ((2 * Coefficient) / sqrt(1 - Coefficient^2)) * (1 - (3 / ((4 * SampleSizeTreatment + 2)- 1))),
+         vi = ((4 * CoefficientVariance) / ((1 - Coefficient^2)^3)) * ((1 - (3 / ((4 * SampleSizeTreatment + 2)- 1)))^2))
+
+
+
+
+##For some OR in round 2, I BELIEVE that we can convert to LRR fairly easily
+# OR stats - DONE
+
+Logreg <- fulldat %>%
+  filter(grepl('logis',Coef_Type) & !grepl("OR",Coef_Type)) %>%
+  mutate(CoefficientVariance = ifelse(Error_Type == "95CI",
+                                      ((2*as.numeric(CoefficientVariance))/3.92),
+                                      as.numeric(CoefficientVariance))) %>%
+  mutate(Coefficient = exp(as.numeric(Coefficient)),
+         CoefficientVariance = exp(as.numeric(CoefficientVariance)),
+         Coef_Type = "OR",
+         Sample_size = (SampleSizeTreatment + ifelse(is.na(SampleSizeControl),
+                                                             0,
+                                                             SampleSizeControl)))
+
+
+ORs <- fulldat %>%
+  mutate(Coef_Type = tolower(Coef_Type)) %>%
+  filter(grepl("odd",Coef_Type) | Coef_Type %in% c("or","or (logistic regression model)")) %>%
+  # convert all 95CI to SE (2*95CI / 3.92)
+  mutate(CoefficientVariance = ifelse(Error_Type == "95CI",
+                                      ((2*as.numeric(CoefficientVariance))/3.92),
+                                      as.numeric(CoefficientVariance)),
+         Coefficient = as.numeric(Coefficient),
+         Sample_size = (SampleSizeTreatment + ifelse(is.na(SampleSizeControl),
+                                                             0,
+                                                             SampleSizeControl))
+         )
+
+ORs <- bind_rows(ORs, Logreg)
+
+dat <- convert_or2d(or = as.numeric(ORs$Coefficient),
+                    se = ORs$CoefficientVariance,
+                    totaln = ORs$Sample_size,
+                    es.type = "g")
+ORs$yi = dat$es
+ORs$vi = dat$var
+
+
+
+
+# z_stat stats - DONE
+z_stats <- fulldat %>%
+  filter(Coef_Type %in% c("Z test","Z statistic","z-stat")) %>%
+  mutate(Coefficient  = as.numeric(Coefficient),
+         SampleSizeTreatment  = as.numeric(SampleSizeTreatment),
+         SampleSizeControl  = as.numeric(SampleSizeControl),
+         Sample_size = (SampleSizeTreatment + ifelse(is.na(SampleSizeControl) | SampleSizeControl == "",
+                                                             0,
+                                                             SampleSizeControl))
+           )
+
+
+zd <- z_to_d(z = z_stats$Coefficient,
+             n = z_stats$Sample_size)
+
+zd$var <- (((zd$CI_high - zd$CI_low) / 3.92) * sqrt(z_stats$Sample_size))^2
+zd$J = 1 - (3 / ((4 * (z_stats$Sample_size) + 2)- 1))
+zd$g = zd$J * zd$d
+zd$var_g = (zd$J^2) * zd$var
+
+
+
+#add directionality!
+z_stats$yi = zd$g * c(-1,-1,-1,-1,-1,-1,-1,-1,1,1,1)
+z_stats$vi = zd$var_g
+
+
+z_stats
+
+# relative risk stats - all should be dropped- not enough info provided to convert to OR or other effect size
+RR <- fulldat %>%
+  filter(Coef_Type %in% c("RR","IRR","Univariate incidence rate ratio",
+                          "Crude Incidence Rate Ratio","HRR", "Risk ratio"))
+
+
+
+# regression stats - Need to extract data directly from papers.
+# NEED TO DO THIS STILL
+
+regress <- fulldat %>%
+  filter(Coef_Type %in% c("regression", "linear regression coefficient",
+                          "Regression", 'Estimate', "estimate",
+                          "Linear regression", "linear regression",
+                          "Linear regression coefficient", "linear regresssion estimate",
+                          "Regression coefficient")) %>%
+  filter(!is.na(SD_Y)) %>%
+  mutate(SD_Y = as.numeric(SD_Y))
+
+regress$Sample_size = (regress$SampleSizeTreatment + ifelse(is.na(regress$SampleSizeControl),
+                                                            0,
+                                                            regress$SampleSizeControl))
+
+
+regs <- esc_B(b = regress$Coefficient,       # unstandardized regression coefficient
+              sdy = regress$SD_Y,       # standard deviation of predicted variable y
+              grp1n = regress$Sample_size,   # sample size of the first group
+              grp2n = regress$Sample_size,   # sample size of the second group
+              es.type = "g") # convert to SMD; use "g" for Hedges' g
+regress$yi <- regs$es
+regress$vi = regs$var
+
+
+convertdat2 <- bind_rows(non_coefdat %>% mutate(Coefficient = as.numeric(Coefficient),
+                                                CoefficientVariance = as.numeric(CoefficientVariance)),
+                         corrs %>% mutate(Coefficient = as.numeric(Coefficient),
+                                          CoefficientVariance = as.numeric(CoefficientVariance)),
+                         ORs %>% mutate(Coefficient = as.numeric(Coefficient),
+                                        CoefficientVariance = as.numeric(CoefficientVariance)),
+                         tstats %>% mutate(Coefficient = as.numeric(Coefficient),
+                                           CoefficientVariance = as.numeric(CoefficientVariance)),
+                         z_stats %>% mutate(Coefficient = as.numeric(Coefficient),
+                                            CoefficientVariance = as.numeric(CoefficientVariance)),
+                         fstats %>% mutate(Coefficient = as.numeric(Coefficient),
+                                           CoefficientVariance = as.numeric(CoefficientVariance)),
+                         regress %>% mutate(Coefficient = as.numeric(Coefficient),
+                                           CoefficientVariance = as.numeric(CoefficientVariance)))
+
+convertdat2 <- convertdat2 %>%
+  ungroup() %>%
+  mutate(ind_id = as.character(1:nrow(convertdat2))) %>%
+  mutate(Citation.number = paste("CN",as.character(as.integer(factor(Citation))),sep = "_"))
+
+parallel::detectCores()
+
+mgrandNEW <- rma.mv(yi, vi, 
+                 mods = ~ Global.Change.Driver - 1,
+                 random = list(~1|Citation.number, ~1|ind_id),
+                 data = convertdat2,
+                 control=list(optimizer="optimParallel", ncpus=15))
+
+summary(mgrandNEW)
+
+##cluter-robust estimate of the variance-covariatnce matric of model coefficients
+# Satterthwaite approximations for degrees of freedom,
+# var-cov estimator is CR2
+m1o <- robust(mgrandNEW, cluster=Citation.number, clubSandwich=TRUE)
+
+
+m1oem <- (qdrg(object = m1o, data = convertdat2))
+
+out11 <- (emmeans(m1oem, ~ Global.Change.Driver))
+
+out11 <- (print(out11))
+summary(m1em)$emmean
+
+
+out11$df = m1o$dfs
+out11$SE = m1o$se
+out11$asymp.LCL = m1o$ci.lb
+out11$asymp.UCL = m1o$ci.ub
+
+emmeans:::cld.emmGrid(out11)
+
+##Clean up dataset
+
+colnames(convertdat2)
+
+#Effect
+unique(convertdat2$Effect)
+convertdat2$Effect = ifelse(convertdat2$Effect == "Fragmentation",
+                            "Forest Fragmentation",
+                            ifelse(convertdat2$Effect %in% c("Temperature","mean temperature",
+                                                             "mean temeprature", "Mean Temperature",
+                                                             "Mean Temeprature", "Soil temeprature",
+                                                             "Mean Temperature Change", "Temp"),
+                                   "Mean Temperature",
+                                   ifelse(convertdat2$Effect == "Metals",
+                                          "Metal",
+                                          ifelse(convertdat2$Effect %in% c("drought","Soil moisture",
+                                                                           "percipitation", "Percipitation"),
+                                                 "Precipitation",
+                                                 ifelse(convertdat2$Effect == "Disturbance/Vegetation loss",
+                                                        "Deforestation",
+                                                        ifelse(convertdat2$Effect %in% c("Temeprature Variance"),
+                                                               "Temperature Variability or ENSO",
+                                                        convertdat2$Effect))))))
+
+#Host/Parasite Endpoint
+unique(convertdat2$Endpoint_Host_Parasite)
+
+convertdat2$Endpoint_Host_Parasite <- ifelse(convertdat2$Endpoint_Host_Parasite_Vector %in% c("Parasite","parasite","Vector","vector"),
+                                             "Parasite",
+                                             "Host")
+
+#Native host type
+unique(convertdat2$Native.host.type)
+
+convertdat2$Native.host.type = ifelse(convertdat2$Native.host.type %in% c("Mammal","Humans","Rodent", "rodents","Feline",
+                                                                          "Human"),
+                                      "Mammal",
+                                      ifelse(convertdat2$Native.host.type %in% c("plant","Plant"),
+                                             "Plant",
+                                             ifelse(convertdat2$Native.host.type %in% c("Bird","Avian"),
+                                                    "Bird",
+                                                    ifelse(convertdat2$Native.host.type %in% c("Mussel","Mollusca","Mollusk"),
+                                                           "Mollusk",
+                                                           ifelse(convertdat2$Native.host.type %in% c("Reptile ", "Amphibian/Reptile"),
+                                                                  "Amphibian/Reptile",
+                                                                  ifelse(convertdat2$Native.host.type %in% c("Fish", "fish"),
+                                                                         "Amphibian/Reptile",
+                                                                  convertdat2$Native.host.type))))))
+                                                                  
+#Ectothermic host type
+unique(convertdat2$Ectothermic.host)
+
+convertdat2$Ectothermic.host = ifelse(convertdat2$Ectothermic.host %in% c("no","N","No","Endo","endo","Human"),
+                                      "No",
+                                      ifelse(convertdat2$Ectothermic.host %in% c("Y","Yes","yes"),
+                                             "Yes",
+                                             convertdat2$Ectothermic.host))
+
+
+#Enemy type
+unique(convertdat2$Enemy.type)
+
+convertdat2$Enemy.type = ifelse(convertdat2$Enemy.type %in% c("protozoa","Protist","protozao","Apicomplexa",
+                                                              "Oomycetes","Ciliate", "Protozoa","protist"),
+                                "Protists",
+                                ifelse(convertdat2$Enemy.type %in% c("virus","Virus"),
+                                       "Virus",
+                                       ifelse(convertdat2$Enemy.type %in% c("helminth","Helminth"),
+                                              "Helminth",
+                                              ifelse(convertdat2$Enemy.type %in% c("Insect","Arthropod","antropod",'arthropod'),
+                                                     "Arthropod",
+                                                     ifelse(convertdat2$Enemy.type %in% c("bacteria","Bacteria"),
+                                                            "Bacteria",
+                                                            ifelse(convertdat2$Enemy.type %in% c("Fungi","Fungus"),
+                                                                   "Fungi",
+                                                                   ifelse(grepl("/|;",convertdat2$Enemy.type) | convertdat2$Enemy.type == "Unknown",
+                                                                   NA,
+                                                                   convertdat2$Enemy.type)))))))
+
+
+
+#Habitat
+unique(convertdat2$Habitat)
+
+convertdat2$Habitat = ifelse(convertdat2$Habitat %in% c("Terrestrial","Terestrial","Terretrial",
+                                                        "Terrestial", "terrestrial"),
+                             "Terrestrial",
+                             ifelse(convertdat2$Habitat %in% c("Freshwater","Aquatic"),
+                                    "Freshwater",
+                                    convertdat2$Habitat))
+
+
+#Ectoparasite
+unique(convertdat2$Ectoparasite)
+
+convertdat2$Ectoparasite = ifelse(convertdat2$Ectoparasite %in% c("no","N","No","No "),
+                                      "No",
+                                      ifelse(convertdat2$Ectoparasite %in% c("Y","Yes","yes"),
+                                             "Yes",
+                                             ifelse(is.na(convertdat2$Ectoparasite) | convertdat2$Ectoparasite %in% c("Unknown",""),
+                                             NA,
+                                             convertdat2$Ectoparasite)))
+
+
+#Vector
+unique(convertdat2$Vector)
+convertdat2$Vector = ifelse(convertdat2$Vector %in% c("no","N","No","No ", "NO"),
+                                  "No",
+                                  ifelse(convertdat2$Vector %in% c("Y","Yes","yes"),
+                                         "Yes",
+                                         ifelse(is.na(convertdat2$Vector) | convertdat2$Vector %in% c("Unknown",""),
+                                                NA,
+                                                convertdat2$Vector)))
+
+#Vector.borne
+unique(convertdat2$Vector.borne)
+convertdat2$Vector.borne = ifelse(convertdat2$Vector.borne %in% c("no","N","No","No ", "NO"),
+                            "No",
+                            ifelse(convertdat2$Vector.borne %in% c("Y","Yes","yes"),
+                                   "Yes",
+                                   ifelse(is.na(convertdat2$Vector.borne) | convertdat2$Vector.borne %in% c("Unknown",""),
+                                          NA,
+                                          convertdat2$Vector.borne)))
+
+
+#Free.living.stages
+unique(convertdat2$Free.living.stages)
+convertdat2$Free.living.stages = ifelse(convertdat2$Free.living.stages %in% c("no","N","No","No ", "NO"),
+                                  "No",
+                                  ifelse(convertdat2$Free.living.stages %in% c("Y","Yes","yes"),
+                                         "Yes",
+                                         ifelse(is.na(convertdat2$Free.living.stages) | convertdat2$Free.living.stages %in% c("Unknown",""),
+                                                NA,
+                                                convertdat2$Free.living.stages)))
+
+
+#Human.Parasite
+unique(convertdat2$Human.Parasite)
+convertdat2$Human.Parasite = ifelse(convertdat2$Human.Parasite %in% c("no","N","No","No ", "NO","No?"),
+                                        "No",
+                                        ifelse(convertdat2$Human.Parasite %in% c("Y","Yes","yes"),
+                                               "Yes",
+                                               ifelse(is.na(convertdat2$Human.Parasite) | convertdat2$Human.Parasite %in% c("Unknown","","Na"),
+                                                      NA,
+                                                      convertdat2$Human.Parasite)))
+
+#Zoonotic
+unique(convertdat2$Zoonotic)
+convertdat2$Zoonotic = ifelse(convertdat2$Zoonotic %in% c("no","N","No","No ", "NO","No?"),
+                                    "No",
+                                    ifelse(convertdat2$Zoonotic %in% c("Y","Yes","yes","yed","Yes?"),
+                                           "Yes",
+                                           ifelse(is.na(convertdat2$Zoonotic) |
+                                                    convertdat2$Zoonotic %in% c("Unknown","one","IC",""),
+                                                  NA,
+                                                  convertdat2$Zoonotic)))
+
+
+#Macroparasite
+unique(convertdat2$Macroparasite)
+convertdat2$Macroparasite = ifelse(convertdat2$Macroparasite %in% c("no","N","No","No ", "NO","No?"),
+                              "No",
+                              ifelse(convertdat2$Macroparasite %in% c("Y","Yes","yes","yed","Yes?"),
+                                     "Yes",
+                                     ifelse(is.na(convertdat2$Macroparasite) |
+                                              convertdat2$Macroparasite %in% c("Unknown","one","IC",""),
+                                            NA,
+                                            convertdat2$Macroparasite)))
+
+#Venue
+unique(convertdat2$Venue)
+convertdat2$Venue = ifelse(convertdat2$Venue %in% c("Field","Field ","field"),
+                                   "Field",
+                                   ifelse(convertdat2$Venue %in% c("lab","Lab","Model","Models"),
+                                          "Lab",
+                                          convertdat2$Venue))
+
+
+
+
+
+x_numbers <- regmatches(convertdat2$Citation, gregexpr("[[:digit:]]+", convertdat2$Citation))  # Apply gregexpr & regmatches
+x_numbers
+
+x_numhold <- list()
+for(i in 1:length(x_numbers)){
+  if(is_empty(x_numbers[[i]])){
+    x_numhold[[i]] = "None"
+  } else {
+    x_numhold[[i]] = grep("20|19", names(which(sapply(x_numbers[[i]], nchar) == 4)), value = T)
+  }
+}
+
+
+
+
+####
+convertdat2C <- convertdat2 %>%
+  filter(!(Effect %in% c("","Humidity","humidity","Relative Humidity","Relative humidity","Ozone")))
+
+msub <- rma.mv(yi, vi, 
+                 mods = ~ Effect - 1,
+                 random = list(~1|Citation.number, ~1|ind_id),
+                 data = convertdat2C,
+                 control=list(optimizer="optimParallel", ncpus=15))
+
+summary(msub)
+m2o <- robust(msub, cluster=Citation.number, clubSandwich=TRUE)
+
+
+m2oem <- (qdrg(object = m2o, data = convertdat2))
+
+emmeans(m2oem, ~ Effect)
+emmeans:::cld.emmGrid(emmeans(m2oem, ~ Effect))
+
+
+
+###
+
+mzoo <- rma.mv(yi, vi, 
+               mods = ~ Zoonotic - 1,
+               random = list(~1|Citation.number, ~1|ind_id),
+               data = convertdat2C,
+               control=list(optimizer="optimParallel", ncpus=15))
+
+summary(mzoo)
+mzooo <- robust(mzoo, cluster=Citation.number, clubSandwich=TRUE)
+mzoooem <- (qdrg(object = mzooo, data = convertdat2C))
+
+emmeans(mzoooem, ~ Zoonotic)
+emmeans:::cld.emmGrid(emmeans(mzoooem, ~ Zoonotic))

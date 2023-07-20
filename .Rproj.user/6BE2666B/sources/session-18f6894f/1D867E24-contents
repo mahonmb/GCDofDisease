@@ -1,0 +1,6 @@
+fulldat2 %>%
+  mutate(Round = ifelse(grepl("CN", Citation.number),
+                        "2",
+                        "1")) %>%
+  group_by(Global.Change.Driver, Round) %>%
+  summarize(count = length(unique(Citation.number)))
