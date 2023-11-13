@@ -22,7 +22,7 @@ emmeans:::cld.emmGrid(m2emlrr)
 
 figdat_GCDlrr <- data.frame(m2emlrr) %>%
   filter(Global.Change.Driver != "BC")
-figdat_GCDlrr$grouping = c("*A", "A", "*B", "*A")
+figdat_GCDlrr$grouping = c("*A", "*A", "*B", "*A")
 figdat_GCDlrr$EffLab = c(3,4,2,1)
 
 #create a new column for GCD labels used in figure 
@@ -90,6 +90,8 @@ fulldat2ELLR <- fulldat2 %>%
   filter(!is.na(LRR_yi) & !is.na(LRR_viC)) %>%
   filter(!(Effect %in% c("Fungicide", "Sulfur Containing Compound")))
 
+sort(unique(fulldat2ELLR$Effect))
+
 mGCDriver_sublrr <- rma.mv(LRR_yi, LRR_viC,
                         mods = ~  Effect - 1,
                         random = list(~1|Citation.number, ~1|ind_id),
@@ -125,9 +127,8 @@ subknlrr = (fulldat2ELLR %>%
            summarize(kcount = n(),
                      ncount = length(unique(Citation.number))))
 
-figdat_sublrr$n = subknlrr$ncount[c(2,3,1,4,5,6,7,8,9,10,11,12,13,14,15,17,16)]
-figdat_sublrr$k = subknlrr$kcount[c(2,3,1,4,5,6,7,8,9,10,11,12,13,14,15,17,16)]
-
+figdat_sublrr$n = subknlrr$kcount[c(2,3,1,4:15,17,16)]
+figdat_sublrr$k = subknlrr$kcount[c(2,3,1,4:15,17,16)]
 
 figdat_sublrr$GCD_xlab <- as.factor(paste(figdat_sublrr$Effect, "\n(n = ", 
                                        figdat_sublrr$n, ", k = ",
@@ -136,10 +137,10 @@ figdat_sublrr$GCD_xlab <- as.factor(paste(figdat_sublrr$Effect, "\n(n = ",
 
 
 figdat_sublrr$GCD_xlab = factor(figdat_sublrr$GCD_xlab,
-                             levels(figdat_sublrr$GCD_xlab)[c(5,14,15,
+                             levels(figdat_sublrr$GCD_xlab)[c(14,10,5,
                                                               16,7,4,
-                                                              17,11,10,2,1,
-                                                              13,12,9,8,6,3
+                                                              12,11,2,1,
+                                                              17,15,13,9,8,6,3
                                                               )])
 
 # figdat_sub$GCD = factor(figdat_sub$GCD,

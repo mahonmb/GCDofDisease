@@ -39,7 +39,7 @@ data.frame(fulldat2 %>%
             seSS = ste(Sample_size)))
 
 
-fulldat2$SE_meta <- sqrt(fulldat2$SMDH_vi2)
+fulldat2$SE_meta <- sqrt(fulldat2$SMDH_viC)
 SEmod <- lmer(SE_meta ~ Global.Change.Driver + (1|Citation.number),
               data = fulldat2)
 emmeans:::cld.emmGrid(emmeans(SEmod, specs = ~ Global.Change.Driver))
@@ -259,11 +259,11 @@ print(complete(data.frame(fulldat2 %>%
 
 ##Total number of studies
 length(unique(fulldat2$Citation.number))
-##1003 studies - note 30 studies are from Mitchell et al (unique citation number for each family)
-
+##1002 studies - note 30 studies are from Mitchell et al (unique citation number for each family)
+## so 1002 - 30 = 972
 ##Total Number of Effect Sizes
 nrow(fulldat2)
-##2940 observations
+##2938 observations
 
 ##Number of parasite species/taxa
 
@@ -271,28 +271,39 @@ data3 = fulldat2 %>%
   filter(complete.cases(Enemy_Random_Effect))
 
 length(unique(data3$Enemy_Random_Effect))
-##Each Introduced species combo is not its own taxa: 1138
-length(unique(data3$Enemy_Random_EffectIS))
-##Each Introduced species combo is its own taxa: 1435
+##Each Introduced species combo is not its own taxa: 751
+
+length(unique(paste(data3$Enemy_Random_Effect,
+                    ifelse(grepl("_", data3$IS_Old_EnemyWInvasive),
+                           sub(".*_", "", data3$IS_Old_EnemyWInvasive),
+                           ""),
+                    sep = "_")))
+##Each Introduced species combo is its own taxa: 1282
 
 
-##
+
+
+
 
 data4 = fulldat2 %>%
   filter(complete.cases(Native.host))
 
 length(unique(data4$Native.host))
-##475 Unique host taxa
+##480 Unique host taxa
 
 ##
 
 data5 = fulldat2 %>%
   filter(complete.cases(Enemy_Random_Effect)) %>%
   filter(complete.cases(Native.host)) %>%
-  mutate(INT = paste(Enemy_Random_EffectIS, Native.host, sep = "_"))
+  mutate(INT = paste(paste(Enemy_Random_Effect,
+                           ifelse(grepl("_", IS_Old_EnemyWInvasive),
+                                  sub(".*_", "", IS_Old_EnemyWInvasive),
+                                  ""),
+                           sep = "_"), Native.host, sep = "_"))
 
 length(unique(data5$INT))
-##1889 Unique parasite - host taxa interactions.
+##1497 Unique parasite - host taxa interactions.
 
 
 ##Parasite groupings
@@ -314,6 +325,12 @@ data3 %>%
   summarize(count = n()) %>%
   mutate(freq = count / sum(count))
 
+
+fulldat2 %>%
+  filter(complete.cases(Income)) %>%
+  group_by(Income, Global.Change.Driver) %>%
+  summarize(Studies = length(unique(Citation)),
+    EffSize = n())
 
 ##Distribution of data across various contexts
 ##Distribution across host taxa
@@ -913,14 +930,14 @@ ggsave("./Figures/SummaryFigSParaStudiesNEWupdate.tiff",
 #Global change driver
 gcdplott = fulldat2 %>%
   group_by(Global.Change.Driver) %>%
-  summarize(npara = length(unique(Enemy_Random_EffectIS))) %>%
+  summarize(npara = length(unique(Enemy_Random_Effect))) %>%
   mutate(GCD = c("Biodiversity change",
            "Climate change",
            "Chemical pollution",
            "Habitat loss/change",
            "Introduced species")) %>%
   ggplot(aes(x = GCD, y = npara))+
-  scale_y_continuous(limits = c(0, 890),
+  scale_y_continuous(limits = c(0, 550),
                      breaks = seq(0,1500,100),
                      expand = c(0, 0))+
   geom_bar(aes(fill = GCD), stat = "identity",
@@ -944,9 +961,9 @@ gcdplott = fulldat2 %>%
 habplott = fulldat2 %>%
   filter(complete.cases(Habitat)) %>%
   group_by(Habitat) %>%
-  summarize(npara = length(unique(Enemy_Random_EffectIS))) %>%
+  summarize(npara = length(unique(Enemy_Random_Effect))) %>%
   ggplot(aes(x = Habitat, y = npara))+
-  scale_y_continuous(limits = c(0, 1490),
+  scale_y_continuous(limits = c(0, 800),
                      breaks = seq(0, 2500, 250),
                      expand = c(0, 0))+
   geom_bar(stat="identity", color = "black", fill = "grey43", width = 0.5)+
@@ -961,9 +978,9 @@ habplott = fulldat2 %>%
 venueplott =
   fulldat2 %>%
   group_by(Venue) %>%
-  summarize(npara = length(unique(Enemy_Random_EffectIS))) %>%
+  summarize(npara = length(unique(Enemy_Random_Effect))) %>%
   ggplot(aes(x = Venue, y = npara))+
-  scale_y_continuous(limits = c(0, 1499),
+  scale_y_continuous(limits = c(0, 800),
                      breaks = seq(0, 3000, 250),
                      expand = c(0, 0))+
   geom_bar(stat="identity", color = "black", fill = "grey43", width = 0.5)+
@@ -978,9 +995,9 @@ paraplott = fulldat2 %>%
   filter(complete.cases(Enemy.type)) %>%
   filter(!(Enemy.type %in% c("Myxozoan","Rotifer"))) %>%
   group_by(Enemy.type) %>%
-  summarize(npara = length(unique(Enemy_Random_EffectIS))) %>%
+  summarize(npara = length(unique(Enemy_Random_Effect))) %>%
   ggplot(aes(x = Enemy.type, y = npara))+
-  scale_y_continuous(limits = c(0, 435),
+  scale_y_continuous(limits = c(0, 275),
                      breaks = seq(0, 800, 50),
                      expand = c(0, 0))+
   geom_bar(stat="identity", color = "black", fill = "grey43", width = 0.5)+
@@ -997,9 +1014,9 @@ hostplott = fulldat2 %>%
   filter(complete.cases(Native.host.type)) %>%
   filter(!(Native.host.type %in% c("Coral","Echinoderm"))) %>%
   group_by(Native.host.type) %>%
-  summarize(npara = length(unique(Enemy_Random_EffectIS))) %>%
+  summarize(npara = length(unique(Enemy_Random_Effect))) %>%
   ggplot(aes(x = Native.host.type, y = npara))+
-  scale_y_continuous(limits = c(0, 850),
+  scale_y_continuous(limits = c(0, 600),
                      breaks = seq(0, 1500, 100),
                      expand = c(0, 0))+
   scale_x_discrete(labels = c("Amphibian/Reptile", "Arthropod", "Bird", "Fish", "Mammal", "Mollusk", "Plant"))+
@@ -1017,9 +1034,9 @@ hostplott = fulldat2 %>%
 humanplott = fulldat2 %>%
   filter(complete.cases(Human.Parasite)) %>%
   group_by(Human.Parasite) %>%
-  summarize(npara = length(unique(Enemy_Random_EffectIS))) %>%
+  summarize(npara = length(unique(Enemy_Random_Effect))) %>%
   ggplot(aes(x = Human.Parasite, y = npara))+
-  scale_y_continuous(limits = c(0, 925),
+  scale_y_continuous(limits = c(0, 600),
                      breaks = seq(0, 2000, 200),
                      expand = c(0, 0))+
   scale_x_discrete(labels = c("Non-human\nparasite", "Human\nparasite"))+
@@ -1059,10 +1076,10 @@ ggsave("./Figures/SummaryFigStudiesParaTaxNEWupdate.tiff",
 hostthemplott = fulldat2 %>%
   filter(complete.cases(Ectothermic.host)) %>%
   group_by(Ectothermic.host) %>%
-  summarize(npara = length(unique(Enemy_Random_EffectIS))) %>%
+  summarize(npara = length(unique(Enemy_Random_Effect))) %>%
   ggplot(aes(x = Ectothermic.host, y = npara))+
-  scale_y_continuous(limits = c(0, 825),
-                     breaks = seq(0, 1500, 200),
+  scale_y_continuous(limits = c(0, 500),
+                     breaks = seq(0, 500, 100),
                      expand = c(0, 0))+
   scale_x_discrete(labels = c("Endothermic\nHost", "Ectothermic\nHost"))+
   geom_bar(stat="identity", color = "black", fill = "grey43", width = 0.5)+
@@ -1075,10 +1092,10 @@ hostthemplott = fulldat2 %>%
 vectorplott = fulldat2 %>%
   filter(complete.cases(Vector)) %>%
   group_by(Vector) %>%
-  summarize(npara = length(unique(Enemy_Random_EffectIS))) %>%
+  summarize(npara = length(unique(Enemy_Random_Effect))) %>%
   ggplot(aes(x = Vector, y = npara))+
-  scale_y_continuous(limits = c(0, 1400),
-                     breaks = seq(0, 2500, 250),
+  scale_y_continuous(limits = c(0, 750),
+                     breaks = seq(0, 600, 200),
                      expand = c(0, 0))+
   scale_x_discrete(labels = c("Non-vector", "Vector"))+
   geom_bar(stat="identity", color = "black", fill = "grey43", width = 0.5)+
@@ -1091,10 +1108,10 @@ vectorplott = fulldat2 %>%
 vectorborneplott = fulldat2 %>%
   filter(complete.cases(Vector.borne)) %>%
   group_by(Vector.borne) %>%
-  summarize(npara = length(unique(Enemy_Random_EffectIS))) %>%
+  summarize(npara = length(unique(Enemy_Random_Effect))) %>%
   ggplot(aes(x = Vector.borne, y = npara))+
-  scale_y_continuous(limits = c(0, 1150),
-                     breaks = seq(0, 1500, 200),
+  scale_y_continuous(limits = c(0, 700),
+                     breaks = seq(0, 600, 200),
                      expand = c(0, 0))+
   scale_x_discrete(labels = c("Non-vector-borne", "Vector-borne"))+
   geom_bar(stat="identity", color = "black", fill = "grey43", width = 0.5)+
@@ -1107,10 +1124,10 @@ vectorborneplott = fulldat2 %>%
 routeplott = fulldat2 %>%
   filter(complete.cases(Route)) %>%
   group_by(Route) %>%
-  summarize(npara = length(unique(Enemy_Random_EffectIS))) %>%
+  summarize(npara = length(unique(Enemy_Random_Effect))) %>%
   ggplot(aes(x = Route, y = npara))+
-  scale_y_continuous(limits = c(0, 999),
-                     breaks = seq(0, 1250, 200),
+  scale_y_continuous(limits = c(0, 600),
+                     breaks = seq(0, 600, 200),
                      expand = c(0, 0))+
   scale_x_discrete(labels = c("Complex\nTransmission", "Direct\nTransmission"))+
   geom_bar(stat="identity", color = "black", fill = "grey43", width = 0.5)+
@@ -1124,10 +1141,10 @@ routeplott = fulldat2 %>%
 FLSplott = fulldat2 %>%
   filter(complete.cases(Free.living.stages)) %>%
   group_by(Free.living.stages) %>%
-  summarize(npara = length(unique(Enemy_Random_EffectIS))) %>%
+  summarize(npara = length(unique(Enemy_Random_Effect))) %>%
   ggplot(aes(x = Free.living.stages, y = npara))+
-  scale_y_continuous(limits = c(0, 1050),
-                     breaks = seq(0, 1500, 250),
+  scale_y_continuous(limits = c(0, 600),
+                     breaks = seq(0, 600, 200),
                      expand = c(0, 0))+
   scale_x_discrete(labels = c("No Free Living\nStages", "Free Living\nStages"))+
   geom_bar(stat="identity", color = "black", fill = "grey43", width = 0.5)+
@@ -1140,10 +1157,10 @@ FLSplott = fulldat2 %>%
 endplott = fulldat2 %>%
   filter(complete.cases(Endpoint_Host_Parasite)) %>%
   group_by(Endpoint_Host_Parasite) %>%
-  summarize(npara = length(unique(Enemy_Random_EffectIS))) %>%
+  summarize(npara = length(unique(Enemy_Random_Effect))) %>%
   ggplot(aes(x = Endpoint_Host_Parasite, y = npara))+
-  scale_y_continuous(limits = c(0, 1375),
-                     breaks = seq(0, 2500, 250),
+  scale_y_continuous(limits = c(0, 750),
+                     breaks = seq(0, 800, 200),
                      expand = c(0, 0))+
   scale_x_discrete(labels = c("Host\nEndpoint", "Parasite\nEndpoint"))+
   geom_bar(stat="identity", color = "black", fill = "grey43", width = 0.5)+
@@ -1156,10 +1173,10 @@ endplott = fulldat2 %>%
 sizeplott = fulldat2 %>%
   filter(complete.cases(Macroparasite)) %>%
   group_by(Macroparasite) %>%
-  summarize(npara = length(unique(Enemy_Random_EffectIS))) %>%
+  summarize(npara = length(unique(Enemy_Random_Effect))) %>%
   ggplot(aes(x = Macroparasite, y = npara))+
-  scale_y_continuous(limits = c(0, 900),
-                     breaks = seq(0, 1500, 200),
+  scale_y_continuous(limits = c(0, 500),
+                     breaks = seq(0, 500, 100),
                      expand = c(0, 0))+
   scale_x_discrete(labels = c("Microparasite", "Macroparasite"))+
   geom_bar(stat="identity", color = "black", fill = "grey43", width = 0.5)+
@@ -1172,10 +1189,10 @@ sizeplott = fulldat2 %>%
 paratypeplott = fulldat2 %>%
   filter(complete.cases(Ectoparasite)) %>%
   group_by(Ectoparasite) %>%
-  summarize(npara = length(unique(Enemy_Random_EffectIS))) %>%
+  summarize(npara = length(unique(Enemy_Random_Effect))) %>%
   ggplot(aes(x = Ectoparasite, y = npara))+
-  scale_y_continuous(limits = c(0, 1100),
-                     breaks = seq(0, 1500, 250),
+  scale_y_continuous(limits = c(0, 600),
+                     breaks = seq(0, 600, 200),
                      expand = c(0, 0))+
   scale_x_discrete(labels = c("Endoparasite", "Ectoparasite"))+
   geom_bar(stat="identity", color = "black", fill = "grey43", width = 0.5)+
@@ -1187,10 +1204,10 @@ paratypeplott = fulldat2 %>%
 zoonplott = fulldat2 %>%
   filter(complete.cases(Zoonotic)) %>%
   group_by(Zoonotic) %>%
-  summarize(npara = length(unique(Enemy_Random_EffectIS))) %>%
+  summarize(npara = length(unique(Enemy_Random_Effect))) %>%
   ggplot(aes(x = Zoonotic, y = npara))+
-  scale_y_continuous(limits = c(0, 1050),
-                     breaks = seq(0, 1500, 250),
+  scale_y_continuous(limits = c(0, 600),
+                     breaks = seq(0, 600, 200),
                      expand = c(0, 0))+
   scale_x_discrete(labels = c("Not Zoonotic", "Zoonotic"))+
   geom_bar(stat="identity", color = "black", fill = "grey43", width = 0.5)+

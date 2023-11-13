@@ -1,5 +1,5 @@
 ---
-title: "Global change drivers and the risk of infectious disease - Supplemental RMarkdown"
+title: "A meta-analysis on global change drivers and the risk of infectious disease - Supplemental RMarkdown"
 author: "Rohr, J.R., M.B. Mahon, A. Sack, C. Barbera, E. Brown, D.J. Civitello, J.M. Cohen, L. de Wit, M. Forstchen, F.W. Halliday, P. Heffernan, S.A. Knutie, A. Korotasz, J. Larson, S.L. Rumschlag, E. Selland, A. Shepack, N. Vincent, and O.A. Young"
 date: "6/6/2023"
 output: html_document
@@ -10,6 +10,10 @@ editor_options:
 # Setup R environment
 
 Read in R packages, make a ggplot theme to be used throughout the code and for all figures.
+
+```{r setup, echo = FALSE}
+knitr::opts_knit$set(root.dir = "C:/Users/mmahon/OneDrive - Environmental Protection Agency (EPA)/Profile/Documents/Research/GlobalChangeDriver_original")
+```
 
 ```{r Environment Setup, message = FALSE, warning = FALSE}
 library(metafor)
@@ -66,9 +70,9 @@ X <- mgrandro$X
 P <- W - W %*% X %*% solve(t(X) %*% W %*% X) %*% t(X) %*% W
 100 * sum(mgrandro$sigma2) / (sum(mgrandro$sigma2) + (mgrandro$k-mgrandro$p)/sum(diag(P)))
 
-##I2 = 0.9988422
+##I2 = 0.9988417
 
-##18.59901 is due to between study variation; 81.28521 is due to within study variation
+##17.77732 is due to between study variation; 82.10685 is due to within study variation
 100 * mgrand$sigma2 / (sum(mgrand$sigma2) + (mgrand$k-mgrand$p)/sum(diag(P)))
 
 ```
@@ -83,8 +87,8 @@ Funnel plot to investigate publication biases in dataset.
 # se = 0.0336
 
 #GCD specific effects
-estimate = c(.7642, 0.3645, 0.1420, -0.1975, 0.4645)
-se = c(0.1376, 0.0823, 0.0751, 0.0385, 0.1142)
+estimate = c(0.7644, 0.3616, 0.1552, -0.1975, 0.4645)
+se = c(0.1376, 0.0828, 0.0760, 0.0385, 0.1143)
 
 Maxobsse = sqrt(max(fulldat2$SMDH_viC, na.rm = T))+1
 
@@ -187,8 +191,6 @@ mpbias2n <- rma.mv(SMDH_yi, SMDH_viC, mods = ~ Sample_sizeEffsqrt * Global.Chang
                  random = list(~1|Citation.number, ~1|ind_id),
                  data = fulldat21)
           
-summary(mpbias2n)
-
 mpbias2nro <- robust(mpbias2n, cluster=Citation.number, clubSandwich=TRUE)
 mpbias2nro
 
@@ -202,7 +204,7 @@ mpbias2n1 <- rma.mv(SMDH_yi, SMDH_viC, mods = ~ Sample_sizeEff * Global.Change.D
 
 mpbias2nro1 <- robust(mpbias2n1, cluster=Citation.number, clubSandwich=TRUE)
 mpbias2nro1
-##time is non-significant; estimate = -0.0001, p = 0.9845
+##time is non-significant
 
 mpbias2nem1 <- qdrg(object = mpbias2nro1, data = fulldat21, at = list(Sample_sizeEff = 0, Year.c = 0 ))
 
@@ -255,7 +257,7 @@ ggsave("./Figures/EggersTestGCD.tiff",
 
 Conduct Fail-safe N analyses for each global change driver, which will return the "File Drawer Number", which represents the number of statistically non-significant unpublished results needed to exist to make the overall effect non-significant. Repeat analysis for each of the three equations (Rosenthal, Orwin, Rosenberg). Note: setting "target" for Orwin's method equal to 0.1 for all global change drivers. Additionally, Chemical Pollution is already non-significant, so results for CP are inconsequential and will not be discussed here. 
 
-For BC, CC, and IS, all fail-safe N values are above the Threshold for large amount of studies (5*Nstudies + 10). For HLC, the Orwin method was below the threshold value; however, Rosenthal and Rosenberg are 3 and 4 orders of magnitude greater than the threshold value, respectively. For CP, the Orwin method was below the threshold value, but Rosenthal and Rosenberg values were 4-8x larger than the threshold valus. So, for all GCD, this evidence indicates that the analyses may be robust with respect to publication bias as such a large number of statistically non-significant results is unlikely to exist. 
+For BC, CC, and IS, all fail-safe N values are above the Threshold for large amount of studies (5*Nstudies + 10). For HLC, the Orwin method was below the threshold value; however, Rosenthal and Rosenberg are 3 and 4 orders of magnitude greater than the threshold value, respectively. For CP, the Orwin method was below the threshold value, but Rosenthal and Rosenberg values were >7x larger than the threshold valus. So, for all GCD, this evidence indicates that the analyses may be robust with respect to publication bias as such a large number of statistically non-significant results is unlikely to exist. 
 
 ```{r Fail-safe N}
 
@@ -316,9 +318,9 @@ hld <- readRDS("./Data/Leave1OutdatNEW.RDS")
 l1o <- ggplot(hld, aes(x = 1:nrow(hld), y = beta))+
   geom_errorbar(aes(ymin = beta - se, ymax = beta + se), width = 0)+
   geom_point(color = "light grey", size = 2)+
-  geom_hline(yintercept = 0.1009, color = "#EA2B1F", linewidth = 1)+
-  geom_hline(yintercept = 0.1009 + 0.0338, color = "#EA2B1F", linewidth = 1)+
-  geom_hline(yintercept = 0.1009 - 0.0338, color = "#EA2B1F", linewidth = 1)+
+  geom_hline(yintercept = 0.1010, color = "#EA2B1F", linewidth = 1)+
+  geom_hline(yintercept = 0.1010 + 0.0338, color = "#EA2B1F", linewidth = 1)+
+  geom_hline(yintercept = 0.1010 - 0.0338, color = "#EA2B1F", linewidth = 1)+
   scale_x_continuous(limits = c(0,580), expand = c(0,0))+
   labs(x = "Study",
        y = "Hedge's G")+
@@ -444,7 +446,7 @@ P <- W - W %*% X %*% solve(t(X) %*% W %*% X) %*% t(X) %*% W
 
 ##I2 = 99.87
 
-##12.06 is due to between study variation; 87.81 is due to within study variation
+##12.10 is due to between study variation; 87.77 is due to within study variation
 100 * m2ro$sigma2 / (sum(m2ro$sigma2) + (m2ro$k-m2ro$p)/sum(diag(P)))
 
 ##Set up emmeans reference grid
@@ -459,7 +461,7 @@ emmeans:::cld.emmGrid(m2em)
 ```{r Figure for Main GCDs, echo = FALSE}
 
 figdat_GCD <- data.frame(m2em)
-figdat_GCD$grouping = c("*A", "*AB", "B", "*C", "*AB")
+figdat_GCD$grouping = c("*A", "*AB", "*B", "*C", "*AB")
 figdat_GCD$EffLab = c(5,3,4,2,1)
 
 #create a new column for GCD labels used in figure 
@@ -502,7 +504,6 @@ ggplot(figdat_GCD, aes(x = GCD_xlab,
             position = position_nudge(x = 0.25))+
   scale_y_continuous(limits = c(-0.275,1.05),      #change limits of Y axis
                      breaks = seq(-0.25,1,0.25))+      #set Y axis breaks
-
   scale_color_manual(values = c("#5E976E",
                                 "#58355E",
                                 "#FFCA3A",
@@ -529,9 +530,8 @@ ggsave("./Figures/GCDMetaFig2.tiff",
 ## Step 2: Test for Subfactors: i.e., subgroupings of ALL GCDs
 ### Information on Step 2
 - In Introduced Species:
-  - Spillover is own subfactor
-  - Split between native to invasive and invasive to native
-  - Spillback is own subfactor
+  - Spillover/Spillback is own subfactor; reclassified as 
+    - Alien:native/native:alien
 
 We see that only a small handful of subfactors actually significantly affect disease
 - Biodiversity loss, mean temperature, CO~2~, and enemy release increase disease
@@ -558,7 +558,7 @@ P <- W - W %*% X %*% solve(t(X) %*% W %*% X) %*% t(X) %*% W
 
 ##I2 = 99.86
 
-##10.59 is due to between study variation; 89.27 is due to within study variation
+##10.60 is due to between study variation; 89.26 is due to within study variation
 100 * mGCDriver_subro$sigma2 / (sum(mGCDriver_subro$sigma2) + (mGCDriver_subro$k-mGCDriver_subro$p)/sum(diag(P)))
 
 
@@ -598,8 +598,9 @@ subkn = (fulldat2 %>%
   summarize(kcount = n(),
             ncount = length(unique(Citation.number))))
 
-figdat_sub$n = subkn$ncount[c(1,2,4,5,3,6,7,8,9,10,11,12,13,14,15,16,17,18,19,21,20)]
-figdat_sub$k = subkn$kcount[c(1,2,4,3,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,21,20)]
+
+figdat_sub$n = subkn$ncount[c(1,2,4,5,3,6:19,21,20)]
+figdat_sub$k = subkn$kcount[c(1,2,4,5,3,6:19,21,20)]
 
 figdat_sub$GCD_xlab <- as.factor(paste(figdat_sub$Effect, "\n(n = ", 
                              figdat_sub$n, ", k = ",
@@ -608,11 +609,11 @@ figdat_sub$GCD_xlab <- as.factor(paste(figdat_sub$Effect, "\n(n = ",
 
 
 figdat_sub$GCD_xlab = factor(figdat_sub$GCD_xlab,
-                                          levels(figdat_sub$GCD_xlab)[c(1, 2,
-                                                                        5, 8, 10:12, 15, 16, 19,
-                                                                        3, 4, 13, 14, 21,
-                                                                        6, 9, 20,
-                                                                        7, 17, 18)])
+                                          levels(figdat_sub$GCD_xlab)[c(1,2,
+                                                                        5,8,10:12,16,18,19,21,
+                                                                        3,4,14,15,
+                                                                        6, 9,20,
+                                                                        7,13,17)])
 
 
 # figdat_sub$GCD = factor(figdat_sub$GCD,
@@ -627,7 +628,7 @@ ggplot(figdat_sub, aes(x = GCD_xlab,
              linetype = "dashed", 
              color = "black", 
              size = 1) +
-  geom_vline(xintercept = c(3.5,6.5,11.5,19.5),
+  geom_vline(xintercept = c(3.5,6.5,10.5,19.5),
              color = "grey",
              linetype = "dotted",
              linewidth = 1)+
@@ -1862,7 +1863,7 @@ pairs((mZooIntgem))
 ```
 
 ```{r, echo = F, eval = F}
-EDF10_WHOLE = cowplot::align_plots(endpointfig+theme(legend.position = c(0.775,0.325),
+EDF8_WHOLE2 = cowplot::align_plots(endpointfig+theme(legend.position = c(0.775,0.325),
                                                    legend.title = element_text(size = 12),
                                                    legend.text = element_text(size = 12)),
                                    fig_vectB+theme(legend.position = c(0.8,0.5),
@@ -1900,14 +1901,14 @@ EDF10_WHOLE = cowplot::align_plots(endpointfig+theme(legend.position = c(0.775,0
                                                    legend.text = element_text(size = 12)))
                                   # align = 'hv', axis = 'l')
 
-EDF10_fig = cowplot::plot_grid(EDF10_WHOLE[[1]], 
-                              EDF10_WHOLE[[2]],
-                              EDF10_WHOLE[[3]], 
-                              EDF10_WHOLE[[4]],
-                              EDF10_WHOLE[[5]], 
-                              EDF10_WHOLE[[6]],
-                              EDF10_WHOLE[[7]], 
-                              EDF10_WHOLE[[8]], 
+EDF8_fig2 = cowplot::plot_grid(EDF8_WHOLE2[[1]], 
+                              EDF8_WHOLE2[[2]],
+                              EDF8_WHOLE2[[3]], 
+                              EDF8_WHOLE2[[4]],
+                              EDF8_WHOLE2[[5]], 
+                              EDF8_WHOLE2[[6]],
+                              EDF8_WHOLE2[[7]], 
+                              EDF8_WHOLE2[[8]], 
                               labels = c("A)","B)","C)","D)","E)","F)","G)","H)"),
                               ncol = 4,
                               rel_widths = c(1,0.85,0.85,0.85,
@@ -1915,10 +1916,10 @@ EDF10_fig = cowplot::plot_grid(EDF10_WHOLE[[1]],
                               label_x = c(0.175,0.05,0.05,0.05,
                                           0.175,0.05,0.05,0.05),
                               label_y = 0.975)
-EDF10_fig
+EDF8_fig2
 
 
-ggsave("./Figures/GCDEDF10.tiff", EDF10_fig,
+ggsave("./Figures/GCDEDF82.tiff", EDF8_fig2,
        dpi = 300,
        width = 7.5,
        height = 4,
@@ -1929,7 +1930,9 @@ ggsave("./Figures/GCDEDF10.tiff", EDF10_fig,
 
 
 
-### Additional analysis on zoonotic diseases
+### Secondary analyses
+
+#### Zoonotic diseases
 For zoonotic diseases, whether the response of these diseases in humans and non-human animals to global change drivers is consistent (i.e., not significantly different) may provide clarity into emerging infectious diseases and pandemic risk. Here, we show no interaction between human and non-human endpoints and the global change drivers. But, there is a significant difference between human and non-human endpoints in their responses across global change drivers. Specifically, disease in non-humans responds more positively to global change drivers than disease in humans, such that the response disease in non-humans is consistently more positive (closer to zero if response of human disease is negative) than disease in humans.
 ```{r supp zoo}
 zoodat1 <- fulldat2 %>%
@@ -1977,7 +1980,7 @@ datfig_zoohum$Global.Change.Driver = factor(datfig_zoohum$Global.Change.Driver,
                                           levels(datfig_zoohum$Global.Change.Driver)[c(5,4,2,3,1)])
 
 #make the plot
-ggplot(datfig_zoohum, aes(x = Global.Change.Driver, 
+zoohumfig <- ggplot(datfig_zoohum, aes(x = Global.Change.Driver, 
                         y=emmean,
                         shape = humanendpoint,
                         color = Global.Change.Driver)) +            #subtract 2 to adjust range of response
@@ -2006,14 +2009,331 @@ ggplot(datfig_zoohum, aes(x = Global.Change.Driver,
   coord_flip()+
   theme_JR()
 
-ggsave("./Figures/GCDZooHNh.tiff",
-       dpi = 300,
-       width = 6.5,
-       height = 4.65,
-       units = "in")
+# ggsave("./Figures/GCDZooHNh.tiff",
+#        dpi = 300,
+#        width = 6.5,
+#        height = 4.65,
+#        units = "in")
 
 ```
 
+#### Wild-life vs. domestic endpoints - animals only
+
+```{r Wild v. domesticated animals}
+
+wddat <- fulldat2 %>% filter(!is.na(domesticatedanimalendpoint))
+
+nrow(wddat)
+mwdanML <- rma.mv(SMDH_yi, SMDH_viC,
+                  mods = ~ domesticatedanimalendpoint + Global.Change.Driver,
+                  random = list(~1|Citation.number, ~1|ind_id),
+                  data=wddat, method = "ML")
+mwdanIntML <- rma.mv(SMDH_yi, SMDH_viC,
+                  mods = ~ domesticatedanimalendpoint * Global.Change.Driver,
+                  random = list(~1|Citation.number, ~1|ind_id),
+                  data=wddat, method = "ML")
+
+#no difference
+anova(mwdanML, mwdanIntML)
+
+mwda <- rma.mv(SMDH_yi, SMDH_viC,
+                  mods = ~ domesticatedanimalendpoint + Global.Change.Driver - 1,
+                  random = list(~1|Citation.number, ~1|ind_id),
+                  data=wddat, method = "REML")
+
+mwdaro <- robust(mwda, cluster=Citation.number, clubSandwich=TRUE)
+mwdaro
+
+
+##Set up emmeans reference grid
+mwdag <- qdrg(object = mwdaro, data = wddat)
+
+mwdagem <- emmeans(mwdag, ~ domesticatedanimalendpoint)
+
+#Difference between wild and domesticated animal endpoints
+pairs((mwdagem))
+
+```
+
+```{r sup animal figure, echo = FALSE}
+datfig_wda <- data.frame(emmeans(mwdag, ~ domesticatedanimalendpoint|Global.Change.Driver))
+datfig_wda$Global.Change.Driver = as.factor(datfig_wda$Global.Change.Driver)
+
+datfig_wda$Global.Change.Driver = factor(datfig_wda$Global.Change.Driver,
+                                          levels(datfig_wda$Global.Change.Driver)[c(5,4,2,3,1)])
+
+#make the plot
+fig_wda <- ggplot(datfig_wda, aes(x = Global.Change.Driver, 
+                        y=emmean,
+                        shape = domesticatedanimalendpoint,
+                        color = Global.Change.Driver)) +            #subtract 2 to adjust range of response
+  geom_point(position = position_dodge(width = 0.2),
+             size = 2.5) +                               #plot points
+  geom_errorbar(aes(ymin = asymp.LCL,        #include error bars
+                    ymax = asymp.UCL),     
+                width=0.25,
+                position = position_dodge(width = 0.2)) +                   #adjust width of bar
+  # scale_y_continuous(limits = c(0,1.05),      #change limits of Y axis
+  #                    breaks = c(0,0.5,1))+      #set Y axis breaks 
+  geom_hline(yintercept = 0,                   #make a reference line at 0
+             linetype = "dashed", 
+             color = "black", 
+             size = 1) +
+  scale_color_manual(values = rev(c("#5E976E",
+                                "#58355E",
+                                "#FFCA3A",
+                                "#EC0B43",
+                                "#63ADF2")),
+                     guide = "none")+
+  scale_shape_manual(values = c(16,17),
+                     labels = c("Wild Animal",
+                                "Domesticated"),
+                     name = "")+
+  xlab("Global Change Driver") +               #relabel X and Y axes
+  ylab("Hedge's G") +
+  coord_flip()+
+  theme_JR()
+
+# ggsave("./Figures/GCDwdoma_supp.tiff",
+#        dpi = 300,
+#        width = 6.5,
+#        height = 4.65,
+#        units = "in")
+
+```
+
+#### HLC supplemental analyses
+Within HLC, we are testing whether enemy types respond differently to urbanization. Additionally, we are testing whether the reference land-use (rural, peri-urban, natural, or urbanization gradient) for urbanization influences the magnitude/direction of the effect size. Finally, we are testing whether for deforestation and fragmentation, the treatment (e.g., agriculture vs. clearcut/regrowth for deforestation and fragmentation gradient or high/low fragmentation for forest fragmentation) influences the magnitude/direction of the effect size.
+
+
+```{r Additional HLC analysis}
+urbdat <- fulldat2 %>% filter(Effect == "Urbanization")
+
+
+nrow(zoodat1)
+mUrb <- rma.mv(SMDH_yi, SMDH_viC,
+                  mods = ~ Enemy.type - 1,
+                  random = list(~1|Citation.number, ~1|ind_id),
+                  data=urbdat, method = "REML")
+mUrbro <- robust(mUrb, cluster=Citation.number, clubSandwich=TRUE)
+mUrbro
+
+
+##Set up emmeans reference grid
+mUrbg <- qdrg(object = mUrbro, data = urbdat)
+
+mUrbgem <- emmeans(mUrbg, ~ Enemy.type)
+
+#Difference between human and non-human endpoints
+pairs((mUrbgem))
+
+emmeans:::cld.emmGrid(mUrbgem)
+
+
+### reference condition
+
+mUrb_c <- rma.mv(SMDH_yi, SMDH_viC,
+                  mods = ~ Urb_control - 1,
+                  random = list(~1|Citation.number, ~1|ind_id),
+                  data=urbdat, method = "REML")
+mUrb_cro <- robust(mUrb_c, cluster=Citation.number, clubSandwich=TRUE)
+mUrb_cro
+
+
+##Set up emmeans reference grid
+mUrb_cg <- qdrg(object = mUrb_cro, data = urbdat)
+
+mUrb_cem <- emmeans(mUrb_cg, ~ Urb_control)
+
+#Difference between human and non-human endpoints
+pairs((mUrb_cem))
+
+
+##deforestation/fragmentation
+#clearcut/natural is anything but agriculture; e.g., clearcut and let regrow, clearcut and open, clearcut and park, etc.
+#gradient is size gradient, fragment is large/continuous forest patch to small patch
+def_fragdat <- fulldat2 %>% filter(Effect %in% c("Deforestation", "Forest Fragmentation"))
+
+mdeff <- rma.mv(SMDH_yi, SMDH_viC,
+                  mods = ~ DefFrag_treat - 1,
+                  random = list(~1|Citation.number, ~1|ind_id),
+                  data=def_fragdat, method = "REML")
+mdeffro <- robust(mdeff, cluster=Citation.number, clubSandwich=TRUE)
+mdeffro
+
+
+##Set up emmeans reference grid
+mdeffg <- qdrg(object = mdeffro, data = def_fragdat)
+
+mdeffgem <- emmeans(mdeffg, ~ DefFrag_treat)
+
+#Difference between treatments within fragmentation, but not deforestation
+contrast(mdeffgem, list(Def = c(-1,1,0,0),
+                        Frag = c(0,0,-1,1)))
+
+```
+
+```{r make the plots}
+datfig_urb <- data.frame(emmeans(mUrbg, ~ Enemy.type))
+
+#make the plot
+fig_urbe <- ggplot(datfig_urb, aes(x = Enemy.type, 
+                        y=emmean,
+                        color = Enemy.type)) +            #subtract 2 to adjust range of response
+  geom_point(position = position_dodge(width = 0.2),
+             size = 2.5) +                               #plot points
+  geom_errorbar(aes(ymin = asymp.LCL,        #include error bars
+                    ymax = asymp.UCL),     
+                width=0.25,
+                position = position_dodge(width = 0.2)) +                   #adjust width of bar
+  # scale_y_continuous(limits = c(0,1.05),      #change limits of Y axis
+  #                    breaks = c(0,0.5,1))+      #set Y axis breaks 
+  geom_hline(yintercept = 0,                   #make a reference line at 0
+             linetype = "dashed", 
+             color = "black", 
+             size = 1) +
+  # scale_shape_manual(values = c(16,17),
+  #                    name = "Human Endpoint")+
+  xlab("Enemy taxa") +               #relabel X and Y axes
+  ylab("Hedge's G") +
+  coord_flip()+
+  theme_JR()+
+  theme(legend.position = 'none')
+
+# ggsave("./Figures/GCDurbanenemy.tiff",
+#        dpi = 300,
+#        width = 6.5,
+#        height = 4.65,
+#        units = "in")
+
+
+datfig_urbc <- data.frame(emmeans(mUrb_cg, ~ Urb_control))
+levels(datfig_urbc$Urb_control)[1] = "Urban Gradient"
+
+#make the plot
+fig_urbc <- ggplot(datfig_urbc, aes(x = Urb_control, 
+                        y=emmean,
+                        color = Urb_control)) +            #subtract 2 to adjust range of response
+  geom_point(position = position_dodge(width = 0.2),
+             size = 2.5) +                               #plot points
+  geom_errorbar(aes(ymin = asymp.LCL,        #include error bars
+                    ymax = asymp.UCL),     
+                width=0.25,
+                position = position_dodge(width = 0.2)) +                   #adjust width of bar
+  # scale_y_continuous(limits = c(0,1.05),      #change limits of Y axis
+  #                    breaks = c(0,0.5,1))+      #set Y axis breaks 
+  geom_hline(yintercept = 0,                   #make a reference line at 0
+             linetype = "dashed", 
+             color = "black", 
+             size = 1) +
+  # scale_shape_manual(values = c(16,17),
+  #                    name = "Human Endpoint")+
+  xlab("Urbanization reference land-use") +               #relabel X and Y axes
+  ylab("Hedge's G") +
+  coord_flip()+
+  theme_JR()+
+  theme(legend.position = 'none')
+
+# ggsave("./Figures/GCDfigurban.tiff",
+#        dpi = 300,
+#        width = 6.5,
+#        height = 4.65,
+#        units = "in")
+
+datfig_deffc <- data.frame(emmeans(mdeffg, ~ DefFrag_treat))
+levels(datfig_deffc$DefFrag_treat)[3] = "High/Low Fragmentation"
+levels(datfig_deffc$DefFrag_treat)[4] = "Continuous Gradient"
+#make the plot
+fig_deffc <- ggplot(datfig_deffc, aes(x = DefFrag_treat, 
+                        y=emmean,
+                        color = DefFrag_treat)) +            #subtract 2 to adjust range of response
+  geom_point(position = position_dodge(width = 0.2),
+             size = 2.5) +                               #plot points
+  geom_errorbar(aes(ymin = asymp.LCL,        #include error bars
+                    ymax = asymp.UCL),     
+                width=0.25,
+                position = position_dodge(width = 0.2)) +                   #adjust width of bar
+  # scale_y_continuous(limits = c(0,1.05),      #change limits of Y axis
+  #                    breaks = c(0,0.5,1))+      #set Y axis breaks 
+  geom_hline(yintercept = 0,                   #make a reference line at 0
+             linetype = "dashed", 
+             color = "black", 
+             size = 1) +
+  geom_vline(xintercept = 2.5,                   #make a reference line at 0
+             linetype = "solid", 
+             color = "black") +
+  # scale_shape_manual(values = c(16,17),
+  #                    name = "Human Endpoint")+
+  xlab("Treatment land-use") +               #relabel X and Y axes
+  ylab("Hedge's G") +
+  coord_flip()+
+  theme_JR()+
+  theme(legend.position = 'none')
+
+# ggsave("./Figures/GCDDefFrag_treat.tiff",
+#        dpi = 300,
+#        width = 6.5,
+#        height = 4.65,
+#        units = "in")
+
+```
+
+```{r supplemental analysis figure, eval = F, echo = F}
+##generate the figure for all of the supplemental analyses
+
+
+
+fig_wda, zoohumfig
+
+EDF9_WHOLE = cowplot::align_plots(zoohumfig+theme(legend.position = c(0.775,0.325),
+                                                   legend.title = element_text(size = 12),
+                                                   legend.text = element_text(size = 12)),
+                                  fig_wda+theme(legend.position = c(0.775,0.325),
+                                                   axis.title.y = element_blank(),
+                                                  axis.text.y = element_blank(),
+                                                   legend.title = element_text(size = 12),
+                                                   legend.text = element_text(size = 12)))
+                                  # align = 'hv', axis = 'l')
+
+EDF9_fig = cowplot::plot_grid(EDF9_WHOLE[[1]], 
+                              EDF9_WHOLE[[2]],
+                              labels = c("A)","B)"),
+                              ncol = 2,
+                              rel_widths = c(1,0.85),
+                              label_x = c(0.175,0.05),
+                              label_y = 0.975)
+EDF9_fig
+
+ggsave("./Figures/GCDEDF9.tiff", EDF9_fig,
+       dpi = 300,
+       width = 4.5,
+       height = 2,
+       units = "in",
+       scale = 2)
+
+EDF10_WHOLE = cowplot::align_plots(fig_urbe,
+                                   fig_urbc,
+                                  fig_deffc,
+                                  align = "hv")
+EDF10_fig = cowplot::plot_grid(EDF10_WHOLE[[1]], 
+                              EDF10_WHOLE[[2]],
+                              EDF10_WHOLE[[3]],
+                              labels = c("A)","B)","C)"),
+                              ncol = 1,
+                              rel_widths = c(1,1,1),
+                              label_x = c(0.175,0.175,0.175),
+                              label_y = 1)
+
+ggsave("./Figures/GCDEDF10.tiff", EDF10_fig,
+       dpi = 300,
+       width = 3,
+       height = 6,
+       units = "in",
+       scale = 2)
+
+
+
+```
 
 ## Step 4: Model Selection:
 ### What factors best explain disease response to specific global change drivers?
@@ -2061,7 +2381,7 @@ dataCC2 = fulldat2 %>%
            complete.cases(SMDH_yi) &
            complete.cases(SMDH_viC))
 
-##Replicates for climate change (310)
+##Replicates for climate change (302)
 nrow(dataCC2)
 
 #Habitat Loss/Change
@@ -2140,7 +2460,7 @@ dataCP2 = fulldat2 %>%
            complete.cases(SMDH_yi) &
            complete.cases(SMDH_viC))
 
-##Replicates for chemical pollution (336)
+##Replicates for chemical pollution (342)
 nrow(dataCP2)
 ```
 
@@ -2352,12 +2672,12 @@ climchangeimport = data.frame(
 climchangeimport$Variable = c("Free living stages",
                               "Host thermy",
                               "Endpoint",
-                              "Venue",
                               "Human Parasite",
+                              "Venue",
+                              "Parasite size",                              
                               "Vector-borne",
-                              "Parasite size",
-                              "Zoonotic",
                               "Parasite type",
+                              "Zoonotic",
                               "Transmission route",
                               "Enemy type",
                               "Habitat"
@@ -2464,19 +2784,18 @@ chempollimport = data.frame(
   Nmodel = attr(sw(subset(ChemPoll_Dredge, delta < 4)), "n.models"))
       
 
-chempollimport$Variable = c("Vector-borne",
-                            "Free living stages",
-                            "Habitat",
-                            "Host type",
-                            "Host thermy",
-                            "Venue",
-                            "Transmission route",
+chempollimport$Variable = c("Free living stages",
+                            "Vector-borne",
                             "Parasite type",
+                            "Transmission route",
+                            "Venue",
                             "Human Parasite",
-                            "Parasite size",
+                            "Host thermy",
                             "Zoonotic",
+                            "Parasite size",
                             "Endpoint",
-                            "GCD subfactor"
+                            "Habitat",
+                            "Host type"
 )
 
 
